@@ -867,7 +867,7 @@ func main() {
 							desconctarCliente(clientId)
 							return
 						}
-						fmt.Printf("Tentativa %d de 5 do cliente %f\n", repeats[clientId]+1, clientId)
+						fmt.Printf("Tentativa %d de 5 do cliente %s\n", repeats[clientId]+1, clientId)
 
 						repeats[clientId] = repeats[clientId] + 1
 					} else if evt.Event == "success" {
@@ -995,7 +995,6 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile *mu
 		if err != nil {
 			log.Fatalf("Erro ao fazer upload da mídia: %v", err)
 		}
-
 		fmt.Println("O arquivo é uma imagem válida.")
 
 		imageMsg := &waE2E.ImageMessage{
