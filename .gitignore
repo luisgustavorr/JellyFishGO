@@ -1,4 +1,4 @@
 clients_db
 /clients_db
-.env
+*.env
 jellyFish
