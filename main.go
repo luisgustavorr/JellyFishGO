@@ -867,6 +867,8 @@ func main() {
 							desconctarCliente(clientId)
 							return
 						}
+						fmt.Printf("Tentativa %d de 5 do cliente %f\n", repeats[clientId]+1, clientId)
+
 						repeats[clientId] = repeats[clientId] + 1
 					} else if evt.Event == "success" {
 						fmt.Println("-------------------AUTENTICADO")
@@ -972,7 +974,23 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile *mu
 
 	semExtensao := strings.TrimSuffix(nomeArquivo, filepath.Ext(nomeArquivo))
 
-	if filetype.IsImage(buf) {
+	if strings.Contains(nomeArquivo, ".mp3") {
+		resp, err := client.Upload(context.Background(), contentBuf.Bytes(), whatsmeow.MediaAudio)
+		if err != nil {
+			log.Fatalf("Erro ao fazer upload da mídia: %v", err)
+		}
+		imageMsg := &waE2E.AudioMessage{
+			Mimetype:      proto.String(mimeType),
+			URL:           &resp.URL,
+			DirectPath:    &resp.DirectPath,
+			MediaKey:      resp.MediaKey,
+			FileEncSHA256: resp.FileEncSHA256,
+			FileSHA256:    resp.FileSHA256,
+			FileLength:    &resp.FileLength,
+		}
+		message.Conversation = nil
+		message.AudioMessage = imageMsg
+	} else if filetype.IsImage(buf) {
 		resp, err := client.Upload(context.Background(), contentBuf.Bytes(), whatsmeow.MediaImage)
 		if err != nil {
 			log.Fatalf("Erro ao fazer upload da mídia: %v", err)
