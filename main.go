@@ -521,6 +521,9 @@ func randomBetween(min, max int) int {
 	rand.Seed(time.Now().UnixNano()) // Garante que os números aleatórios mudem a cada execução
 	return rand.Intn(max-min+1) + min
 }
+
+var repeats map[string]int = make(map[string]int)
+
 func main() {
 	autoConnection()
 	err := godotenv.Load()
@@ -706,6 +709,7 @@ func main() {
 				if editedIDMessage != "" {
 					message = client.BuildEdit(JID, editedIDMessage, message)
 				}
+				fmt.Println("Enviando mensagem", message)
 				retornoEnvio, err := client.SendMessage(context.Background(), JID, message)
 				if err != nil {
 					fmt.Println("Erro ao enviar mensagem", err)
@@ -816,9 +820,10 @@ func main() {
 			}
 
 			// Aqui, aguardamos pelo QR Code gerado
-			var repeats int = 0
 			var evento string = "QRCODE_ATUALIZADO"
+
 			go func() {
+				repeats[clientId] = 0
 				for evt := range qrChan {
 					if evt.Event == "code" {
 						// Gerar o QR Code como imagem PNG
@@ -857,15 +862,13 @@ func main() {
 							baseURL := mapOficial[sufixo]
 							sendToEndPoint(data, clientId, baseURL)
 						}
-						if repeats >= 3 {
+						if repeats[clientId] >= 5 {
 							// desconectar
 							fmt.Println("Tentativas de login excedidas")
 							desconctarCliente(clientId)
 							return
 						}
-
-						repeats++
-
+						repeats[clientId] = repeats[clientId] + 1
 					} else if evt.Event == "success" {
 						fmt.Println("-------------------AUTENTICADO")
 						return
@@ -912,7 +915,6 @@ func desconctarCliente(clientId string) bool {
 	if client != nil {
 		clientMap[clientId] = nil
 		client.Logout()
-
 	}
 	data := map[string]any{
 		"evento":   "CLIENTE_DESCONECTADO",
@@ -943,9 +945,17 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile *mu
 	kind, _ := filetype.Match(buf)
 	if kind == filetype.Unknown {
 		fmt.Println("Unknown file type")
+	} else {
+		fmt.Printf("Filename : %s\n", nomeArquivo)
+		fmt.Printf("Detected file type: %s\n", kind)
+		fmt.Printf("MIME: %s\n", kind.MIME.Value)
+		fmt.Printf("Extension: %s\n", kind.Extension)
 	}
 
 	mimeType := kind.MIME.Value
+	if strings.Contains(nomeArquivo, ".mp3") {
+		mimeType = "audio/mpeg"
+	}
 	fmt.Println("mimeType ", mimeType)
 
 	// Resetando o ponteiro do arquivo
