@@ -542,6 +542,11 @@ func main() {
 			"message": "Cliente não conectado",
 		})
 	})
+	r.GET("/", func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"message": "Rodando",
+		})
+	})
 	r.POST("/sendFiles", func(c *gin.Context) {
 		clientId := c.PostForm("clientId")
 		client := getClient(clientId)
@@ -850,11 +855,9 @@ func main() {
 
 						repeats++
 
-					} else if evt.Event == "authenticated" {
+					} else if evt.Event == "success" {
 						fmt.Println("-------------------AUTENTICADO")
 						return
-					} else {
-						fmt.Println("-----------------LOGADO")
 					}
 				}
 			}()
@@ -889,7 +892,7 @@ func main() {
 			}
 		}
 	})
-	r.Run(":3333") // Escutando na porta 8080
+	r.Run(":3000") // Escutando na porta 8080
 }
 func desconctarCliente(clientId string) bool {
 	fmt.Println("Desconectando " + clientId + " ...")
