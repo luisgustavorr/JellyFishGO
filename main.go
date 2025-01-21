@@ -93,7 +93,7 @@ func (c *MessagesQueue) ProcessMessages(clientID string) {
 	messages := c.messageBuffer[clientID]
 	c.messageBuffer[clientID] = nil // Limpa o buffer
 
-	fmt.Printf("ENVIANDO LOTES DE %d MENSAGENS DO "+clientID, len(messages))
+	fmt.Printf("ENVIANDO LOTES DE %d MENSAGENS DO "+clientID+"\n", len(messages))
 	lastIndex := strings.LastIndex(clientID, "_")
 	sufixo := clientID[lastIndex+1:]
 	baseURL := strings.Split(mapOficial[sufixo], "chatbot")[0]
@@ -889,7 +889,7 @@ func main() {
 			}
 		}
 	})
-	r.Run(":3000") // Escutando na porta 8080
+	r.Run(":3030") // Escutando na porta 8080
 }
 func desconctarCliente(clientId string) bool {
 	fmt.Println("Desconectando " + clientId + " ...")
