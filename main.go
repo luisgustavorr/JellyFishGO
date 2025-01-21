@@ -1002,6 +1002,22 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile *mu
 			//JPEGThumbnail: thumbnailBuf.Bytes(), // removed for this example
 		}
 		message.VideoMessage = imageMsg
+	} else if filetype.IsAudio(buf) {
+		resp, err := client.Upload(context.Background(), contentBuf.Bytes(), whatsmeow.MediaAudio)
+		if err != nil {
+			log.Fatalf("Erro ao fazer upload da mídia: %v", err)
+		}
+		imageMsg := &waE2E.AudioMessage{
+			Mimetype:      proto.String(mimeType),
+			URL:           &resp.URL,
+			DirectPath:    &resp.DirectPath,
+			MediaKey:      resp.MediaKey,
+			FileEncSHA256: resp.FileEncSHA256,
+			FileSHA256:    resp.FileSHA256,
+			FileLength:    &resp.FileLength,
+		}
+		message.Conversation = nil
+		message.AudioMessage = imageMsg
 	} else {
 		resp, err := client.Upload(context.Background(), contentBuf.Bytes(), whatsmeow.MediaDocument)
 		if err != nil {
