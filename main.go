@@ -818,7 +818,6 @@ func main() {
 			if err != nil {
 				panic(err)
 			}
-
 			// Aqui, aguardamos pelo QR Code gerado
 			var evento string = "QRCODE_ATUALIZADO"
 
