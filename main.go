@@ -194,7 +194,14 @@ func loadConfigInicial(dsn string) (map[string]string, map[string]string) {
 		mapProducao[sufixo] = link_oficial
 		mapDesenvolvimento[sufixo] = base_link_teste + link_teste
 	}
-	var desenvolvilemto = true
+	err = godotenv.Load()
+	if err != nil {
+		log.Fatal("Erro ao carregar o arquivo .env")
+	}
+	MODO_DESENVOLVIMENTO := os.Getenv("MODO_DESENVOLVIMENTO")
+	var desenvolvilemto = MODO_DESENVOLVIMENTO == "1"
+	fmt.Println("MODO DESENVOLVIMENTO", desenvolvilemto)
+
 	if desenvolvilemto {
 		return mapDesenvolvimento, mapDesenvolvimento
 	}
