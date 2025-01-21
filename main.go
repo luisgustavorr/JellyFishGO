@@ -24,6 +24,7 @@ import (
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/h2non/filetype"
+	"github.com/joho/godotenv"
 	_ "github.com/mattn/go-sqlite3" // Importação do driver SQLite
 	"github.com/skip2/go-qrcode"
 	"go.mau.fi/whatsmeow"
@@ -515,10 +516,13 @@ func randomBetween(min, max int) int {
 }
 func main() {
 	autoConnection()
-
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Erro ao carregar o arquivo .env")
+	}
+	PORT := os.Getenv("PORT_JELLYFISH_GOLANG")
 	r := gin.Default()
 	r.Use(cors.Default())
-	var err error
 	r.POST("/verifyConnection", func(c *gin.Context) {
 		clientId := c.PostForm("clientId")
 		client := getClient(clientId)
@@ -892,7 +896,8 @@ func main() {
 			}
 		}
 	})
-	r.Run(":3030") // Escutando na porta 8080
+	fmt.Println("Rodando na porta " + PORT)
+	r.Run(":" + PORT) // Escutando na porta 8080
 }
 func desconctarCliente(clientId string) bool {
 	fmt.Println("Desconectando " + clientId + " ...")
