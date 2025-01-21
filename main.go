@@ -892,7 +892,7 @@ func main() {
 			}
 		}
 	})
-	r.Run(":3000") // Escutando na porta 8080
+	r.Run(":3030") // Escutando na porta 8080
 }
 func desconctarCliente(clientId string) bool {
 	fmt.Println("Desconectando " + clientId + " ...")
