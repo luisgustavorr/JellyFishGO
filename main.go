@@ -332,12 +332,14 @@ var messagesQueue = NewQueue()
 func handleMessage(fullInfoMessage *events.Message, clientId string, client *whatsmeow.Client) bool {
 	var groupMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "@g.us")
 	var statusMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "status")
-	if groupMessage || statusMessage {
+	var contactMessage bool = fullInfoMessage.Message.GetContactMessage() != nil
+	var LocationMessage bool = fullInfoMessage.Message.LocationMessage != nil
+	var pollMessage bool = fullInfoMessage.Message.GetPollUpdateMessage() != nil || fullInfoMessage.Message.GetPollCreationMessage() != nil || fullInfoMessage.Message.GetPollCreationMessageV2() != nil || fullInfoMessage.Message.GetPollCreationMessageV3() != nil || fullInfoMessage.Message.GetPollCreationMessageV4() != nil || fullInfoMessage.Message.GetPollCreationMessageV5() != nil
+	if groupMessage || statusMessage || pollMessage || contactMessage || LocationMessage {
 		fmt.Println("Mensagem de grupo ou status, ignorando...", fullInfoMessage.Info.Chat.String())
 		return false
 	}
 	message := fullInfoMessage.Message
-
 	var contextInfo = message.ExtendedTextMessage.GetContextInfo()
 	var senderName string = fullInfoMessage.Info.PushName
 	var text string = getText(message)
@@ -536,6 +538,7 @@ func main() {
 	PORT := os.Getenv("PORT_JELLYFISH_GOLANG")
 	r := gin.Default()
 	r.Use(cors.Default())
+	r.LoadHTMLGlob("templates/*.html")
 	r.POST("/verifyConnection", func(c *gin.Context) {
 		clientId := c.PostForm("clientId")
 		client := getClient(clientId)
@@ -560,9 +563,7 @@ func main() {
 		})
 	})
 	r.GET("/", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"message": "Rodando",
-		})
+		c.HTML(http.StatusOK, "index.html", nil)
 	})
 	r.POST("/sendFiles", func(c *gin.Context) {
 		clientId := c.PostForm("clientId")
@@ -654,7 +655,6 @@ func main() {
 					continue
 				}
 				message := &waE2E.Message{Conversation: &text}
-
 				if leitorZip != nil {
 					for _, arquivo := range leitorZip.File {
 						if strings.Contains(arquivo.Name, "documento_"+idImage) {
