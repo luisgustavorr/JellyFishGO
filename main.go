@@ -894,10 +894,29 @@ func main() {
 				c.JSON(200, gin.H{
 					"qrCode": dataURL,
 				})
+				data := map[string]any{
+					"evento":   evento,
+					"clientId": clientId,
+					"data":     dataURL,
+				}
+				lastIndex := strings.LastIndex(clientId, "_")
+				sufixo := clientId[lastIndex+1:]
+				baseURL := mapOficial[sufixo]
+				sendToEndPoint(data, clientId, baseURL)
+
 			} else {
 				c.JSON(200, gin.H{
 					"qrCode": firstQRCode.Code,
 				})
+				data := map[string]any{
+					"evento":   evento,
+					"clientId": clientId,
+					"data":     firstQRCode.Code,
+				}
+				lastIndex := strings.LastIndex(clientId, "_")
+				sufixo := clientId[lastIndex+1:]
+				baseURL := mapOficial[sufixo]
+				sendToEndPoint(data, clientId, baseURL)
 			}
 		} else {
 			// Caso já tenha ID armazenado, não é necessário gerar QR Code
