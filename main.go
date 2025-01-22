@@ -435,9 +435,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	}
 	return true
 }
-func sendReceivedMessages() {
 
-}
 func autoConnection() {
 	dir := "./clients_db" // Substitua pelo caminho da sua pasta
 	fmt.Println("---------RODANDO")
@@ -477,19 +475,18 @@ func tryConnecting(clientId string) bool {
 	}
 	deviceStore, err := container.GetFirstDevice()
 	if err != nil {
-		panic(err)
+		fmt.Println("erro pegandoDevice", err)
 	}
 	clientLog := waLog.Stdout("Client", "ERROR", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
-	client.AddEventHandler(func(evt interface{}) {
+	client.EnableAutoReconnect = true
 
+	client.AddEventHandler(func(evt interface{}) {
 		switch v := evt.(type) {
 		case *events.Connected:
 			clientMap[clientId] = client
 			fmt.Println("Cliente conectado ao WhatsApp!")
-
 		case *events.Disconnected:
-			clientMap[clientId] = nil
 			fmt.Println("Cliente " + clientId + "desconectou do WhatsApp!")
 		case *events.LoggedOut:
 			desconctarCliente(clientId)
@@ -497,7 +494,6 @@ func tryConnecting(clientId string) bool {
 		case *events.Message:
 			if strings.Contains(clientId, "chat") {
 				handleMessage(v, clientId, client)
-
 			}
 		}
 	})
@@ -507,7 +503,7 @@ func tryConnecting(clientId string) bool {
 		err = client.Connect()
 		clientMap[clientId] = client
 		if err != nil {
-			panic(err)
+			fmt.Println("erro pegandoDevice", err)
 		}
 		return true
 
@@ -547,6 +543,33 @@ func main() {
 			})
 			return
 		}
+		c.JSON(200, gin.H{
+			"message": "Cliente conectado",
+		})
+	})
+	r.POST("/deleteMessage", func(c *gin.Context) {
+		clientId := c.PostForm("clientId")
+		messageID := c.PostForm("messageID")
+		receiverNumber := c.PostForm("receiverNumber")
+		client := getClient(clientId)
+		if client == nil {
+			c.JSON(500, gin.H{
+				"message": "Cliente não conectado",
+			})
+			return
+		}
+		validNumber, err := client.IsOnWhatsApp([]string{receiverNumber})
+		if err != nil {
+			fmt.Println(err, "ERRO IS ONWHATSAPP")
+		}
+		response := validNumber[0]
+		JID := response.JID
+		messageKey := client.BuildMessageKey(JID, *client.Store.ID, messageID)
+		client.SendMessage(context.Background(), JID, &waE2E.Message{
+			ProtocolMessage: &waE2E.ProtocolMessage{
+				Key: messageKey,
+			},
+		})
 		c.JSON(200, gin.H{
 			"message": "Cliente conectado",
 		})
@@ -789,6 +812,7 @@ func main() {
 		// Crie o cliente WhatsApp
 		clientLog := waLog.Stdout("Client", "ERROR", true)
 		client := whatsmeow.NewClient(deviceStore, clientLog)
+		client.EnableAutoReconnect = true
 		client.AddEventHandler(func(evt interface{}) {
 			switch v := evt.(type) {
 			case *events.Connected:
@@ -808,7 +832,6 @@ func main() {
 				baseURL := mapOficial[sufixo]
 				sendToEndPoint(data, clientId, baseURL)
 			case *events.Disconnected:
-				clientMap[clientId] = nil
 				fmt.Println("Cliente " + clientId + "desconectou do WhatsApp!")
 			case *events.LoggedOut:
 				clientMap[clientId] = nil
