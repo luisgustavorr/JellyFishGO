@@ -331,10 +331,13 @@ var messagesQueue = NewQueue()
 
 func handleMessage(fullInfoMessage *events.Message, clientId string, client *whatsmeow.Client) bool {
 	var groupMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "@g.us")
-	if groupMessage {
+	var statusMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "status")
+	if groupMessage || statusMessage {
+		fmt.Println("Mensagem de grupo ou status, ignorando...", fullInfoMessage.Info.Chat.String())
 		return false
 	}
 	message := fullInfoMessage.Message
+
 	var contextInfo = message.ExtendedTextMessage.GetContextInfo()
 	var senderName string = fullInfoMessage.Info.PushName
 	var text string = getText(message)
@@ -553,7 +556,7 @@ func main() {
 		clientMap[clientId] = nil
 		fmt.Println("Desconectando")
 		c.JSON(200, gin.H{
-			"message": "Cliente não conectado",
+			"message": "Cliente desconectado",
 		})
 	})
 	r.GET("/", func(c *gin.Context) {
@@ -690,6 +693,8 @@ func main() {
 					}
 					response := validNumber[0]
 					senderJID := response.JID
+					fmt.Println("JID da mensagem", messageID, senderJID, JID)
+
 					var msg_quote *waE2E.Message = &waE2E.Message{
 						ExtendedTextMessage: &waE2E.ExtendedTextMessage{
 							Text: proto.String(text),
@@ -704,7 +709,6 @@ func main() {
 							QuotedMessage: msg_quote,
 						},
 					}
-					fmt.Println("Mensagem citada", message)
 				}
 				if editedIDMessage != "" {
 					message = client.BuildEdit(JID, editedIDMessage, message)
