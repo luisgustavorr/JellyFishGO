@@ -826,7 +826,7 @@ func main() {
 			var evento string = "QRCODE_ATUALIZADO"
 
 			go func() {
-				repeats[clientId] = 0
+				repeats[clientId] = 1
 				for evt := range qrChan {
 					if evt.Event == "code" {
 						// Gerar o QR Code como imagem PNG
@@ -865,15 +865,15 @@ func main() {
 							baseURL := mapOficial[sufixo]
 							sendToEndPoint(data, clientId, baseURL)
 						}
+						repeats[clientId] = repeats[clientId] + 1
 						if repeats[clientId] >= 5 {
 							// desconectar
 							fmt.Println("Tentativas de login excedidas")
 							desconctarCliente(clientId)
 							return
 						}
-						fmt.Printf("Tentativa %d de 5 do cliente %s\n", repeats[clientId]+1, clientId)
+						fmt.Printf("Tentativa %d de 5 do cliente %s\n", repeats[clientId], clientId)
 
-						repeats[clientId] = repeats[clientId] + 1
 					} else if evt.Event == "success" {
 						fmt.Println("-------------------AUTENTICADO")
 						return
