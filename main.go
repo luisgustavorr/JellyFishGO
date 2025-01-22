@@ -490,7 +490,6 @@ func tryConnecting(clientId string) bool {
 
 		case *events.Disconnected:
 			clientMap[clientId] = nil
-			desconctarCliente(clientId)
 			fmt.Println("Cliente " + clientId + "desconectou do WhatsApp!")
 		case *events.LoggedOut:
 			desconctarCliente(clientId)
@@ -643,6 +642,11 @@ func main() {
 				if err != nil {
 					fmt.Println(err, "ERRO ISONWHATSAPP")
 				}
+				if len(validNumber) == 0 {
+					fmt.Println("Nenhum número está no WhatsApp.")
+					continue
+				}
+
 				response := validNumber[0] // Acessa o primeiro item da slice
 				JID := response.JID
 
@@ -687,6 +691,10 @@ func main() {
 					if !ok {
 						log.Println("sender não é uma string.")
 					}
+					messageQuoted, ok := quotedMessage["messageQuoted"].(string)
+					if !ok {
+						log.Println("messageQuoted não é uma string.")
+					}
 					validNumber, err := client.IsOnWhatsApp([]string{sender})
 					if err != nil {
 						fmt.Println(err, "ERRO IS ONWHATSAPP")
@@ -697,7 +705,7 @@ func main() {
 
 					var msg_quote *waE2E.Message = &waE2E.Message{
 						ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-							Text: proto.String(text),
+							Text: proto.String(messageQuoted),
 						},
 					}
 					message.Conversation = nil
@@ -801,7 +809,6 @@ func main() {
 				sendToEndPoint(data, clientId, baseURL)
 			case *events.Disconnected:
 				clientMap[clientId] = nil
-				desconctarCliente(clientId)
 				fmt.Println("Cliente " + clientId + "desconectou do WhatsApp!")
 			case *events.LoggedOut:
 				clientMap[clientId] = nil
