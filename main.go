@@ -511,7 +511,7 @@ func tryConnecting(clientId string) bool {
 		}
 	})
 	if client.Store.ID == nil {
-		removeClientDB(clientId, container)
+		// removeClientDB(clientId, container)
 		return false
 	} else {
 		err = client.Connect()
@@ -1019,7 +1019,7 @@ func desconctarCliente(clientId string, container *sqlstore.Container) bool {
 
 	fmt.Println("Desconectando " + clientId + " ...")
 	client := getClient(clientId)
-	removeClientDB(clientId, container)
+	// removeClientDB(clientId, container)
 	if client != nil {
 		clientMap[clientId] = nil
 		client.Logout()
