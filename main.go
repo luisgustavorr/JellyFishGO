@@ -100,7 +100,6 @@ func (c *MessagesQueue) ProcessMessages(clientID string) {
 	if strings.Contains(baseURL, "disparo") {
 		baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
 	}
-	fmt.Println("Mensagem enviadas", messages)
 	data := map[string]any{
 		"evento":   "MENSAGEM_RECEBIDA",
 		"clientId": clientID,
