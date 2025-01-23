@@ -20,9 +20,8 @@ import (
 
 	"math/rand"
 
-	"github.com/gin-contrib/cors"
-	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/gofiber/fiber/v2"
 	"github.com/h2non/filetype"
 	"github.com/joho/godotenv"
 	_ "github.com/mattn/go-sqlite3" // Importação do driver SQLite
@@ -74,7 +73,7 @@ func (c *MessagesQueue) AddMessage(clientID string, message map[string]interface
 
 	// Calcula o tempo de espera com base no tamanho do buffer
 	messageCount := len(c.messageBuffer[clientID])
-	timerBetweenMessage := -0.15*float64(messageCount)*float64(messageCount) + 0.5*float64(messageCount) + 3
+	timerBetweenMessage := -0.15*float64(messageCount)*float64(messageCount) + 0.5*float64(messageCount) + 7
 	if timerBetweenMessage < 0 {
 		timerBetweenMessage = 0.001
 	}
@@ -330,6 +329,18 @@ func getSender(senderNumber string) string {
 
 var messagesQueue = NewQueue()
 
+func requestLogger(c *fiber.Ctx) error {
+	start := time.Now()
+	method := c.Method()
+	path := c.Path()
+	// ip := c.IP()
+	clientId := c.FormValue("clientId")
+	err := c.Next()
+	duration := time.Since(start)
+	log.Printf("[%s] %s | Tempo: %v | ClientId: %s\n", method, path, duration, clientId)
+	return err
+}
+
 func handleMessage(fullInfoMessage *events.Message, clientId string, client *whatsmeow.Client) bool {
 	var groupMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "@g.us")
 	var statusMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "status")
@@ -536,32 +547,31 @@ func main() {
 		log.Fatal("Erro ao carregar o arquivo .env")
 	}
 	PORT := os.Getenv("PORT_JELLYFISH_GOLANG")
-	r := gin.Default()
-	r.Use(cors.Default())
-	r.LoadHTMLGlob("templates/*.html")
-	r.POST("/verifyConnection", func(c *gin.Context) {
-		clientId := c.PostForm("clientId")
+	r := fiber.New()
+	r.Use(requestLogger)
+	// r.LoadHTMLGlob("templates/*.html")
+	r.Post("/verifyConnection", func(c *fiber.Ctx) error {
+		clientId := c.FormValue("clientId")
 		client := getClient(clientId)
 		if client == nil {
-			c.JSON(500, gin.H{
+
+			return c.Status(500).JSON(fiber.Map{
 				"message": "Cliente não conectado",
 			})
-			return
 		}
-		c.JSON(200, gin.H{
+		return c.Status(200).JSON(fiber.Map{
 			"message": "Cliente conectado",
 		})
 	})
-	r.POST("/deleteMessage", func(c *gin.Context) {
-		clientId := c.PostForm("clientId")
-		messageID := c.PostForm("messageID")
-		receiverNumber := c.PostForm("receiverNumber")
+	r.Post("/deleteMessage", func(c *fiber.Ctx) error {
+		clientId := c.FormValue("clientId")
+		messageID := c.FormValue("messageID")
+		receiverNumber := c.FormValue("receiverNumber")
 		client := getClient(clientId)
 		if client == nil {
-			c.JSON(500, gin.H{
+			return c.Status(500).JSON(fiber.Map{
 				"message": "Cliente não conectado",
 			})
-			return
 		}
 		validNumber, err := client.IsOnWhatsApp([]string{receiverNumber})
 		if err != nil {
@@ -576,37 +586,36 @@ func main() {
 				Type: waE2E.ProtocolMessage_REVOKE.Enum(),
 			},
 		})
-		c.JSON(200, gin.H{
+		return c.Status(200).JSON(fiber.Map{
 			"messageID": messageID,
 			"message":   "excluída",
 		})
 	})
-	r.POST("/destroySession", func(c *gin.Context) {
-		clientId := c.PostForm("clientId")
+	r.Post("/destroySession", func(c *fiber.Ctx) error {
+		clientId := c.FormValue("clientId")
 		client := getClient(clientId)
 		client.Logout()
 		clientMap[clientId] = nil
 		fmt.Println("Desconectando")
-		c.JSON(200, gin.H{
+		return c.Status(200).JSON(fiber.Map{
 			"message": "Cliente desconectado",
 		})
 	})
-	r.GET("/", func(c *gin.Context) {
-		c.HTML(http.StatusOK, "index.html", nil)
+	r.Get("/", func(c *fiber.Ctx) error {
+		return c.SendFile("./templates/index.html")
 	})
-	r.POST("/sendFiles", func(c *gin.Context) {
-		clientId := c.PostForm("clientId")
+	r.Post("/sendFiles", func(c *fiber.Ctx) error {
+		clientId := c.FormValue("clientId")
 		client := getClient(clientId)
 		if client == nil {
-			c.JSON(500, gin.H{
+			return c.Status(500).JSON(fiber.Map{
 				"message": "Cliente não conectado",
 			})
-			return
 		}
-		c.JSON(200, gin.H{
-			"message": "Arquivo recebido e enviado no WhatsApp.",
-		})
-		infoObjects := c.PostForm("infoObjects")
+		// c.Status(200).JSON(fiber.Map{
+		// 	"message": "Arquivo recebido e enviado no WhatsApp.",
+		// })
+		infoObjects := c.FormValue("infoObjects")
 		var documento_padrao *multipart.FileHeader = nil
 		documento_padrao, err = c.FormFile("documento_padrao")
 		if err != nil {
@@ -785,12 +794,14 @@ func main() {
 
 			}
 		}()
-
+		return c.Status(200).JSON(fiber.Map{
+			"message": "Arquivo recebido e enviado no WhatsApp.",
+		})
 	})
-	r.POST("/getQRCode", func(c *gin.Context) {
+	r.Post("/getQRCode", func(c *fiber.Ctx) error {
 		fmt.Println("Gerar QR Code")
 		// Recupera o corpo da requisição e faz a bind para a estrutura de dados
-		clientId := c.PostForm("clientId")
+		clientId := c.FormValue("clientId")
 		if strings.Contains(clientId, "_chat") {
 			store.DeviceProps = &waCompanionReg.DeviceProps{Os: proto.String("Shark Business(ChatBot)")}
 		} else if strings.Contains(clientId, "_shark") {
@@ -798,12 +809,12 @@ func main() {
 
 		}
 		if clientMap[clientId] != nil {
-			c.JSON(200, gin.H{
+			return c.Status(200).JSON(fiber.Map{
 				"message": "Cliente já autenticado",
 			})
-			return
+
 		}
-		qrCode := c.PostForm("qrCode") == "true"
+		qrCode := c.FormValue("qrCode") == "true"
 		// Obtenha o dispositivo
 		dbLog := waLog.Stdout("Database", "INFO", true)
 
@@ -927,9 +938,7 @@ func main() {
 				base64Img := base64.StdEncoding.EncodeToString(png)
 				// Criar o data URL
 				dataURL := fmt.Sprintf("data:image/png;base64,%s", base64Img)
-				c.JSON(200, gin.H{
-					"qrCode": dataURL,
-				})
+
 				data := map[string]any{
 					"evento":   evento,
 					"clientId": clientId,
@@ -939,11 +948,11 @@ func main() {
 				sufixo := clientId[lastIndex+1:]
 				baseURL := mapOficial[sufixo]
 				sendToEndPoint(data, clientId, baseURL)
-
-			} else {
-				c.JSON(200, gin.H{
-					"qrCode": firstQRCode.Code,
+				return c.Status(200).JSON(fiber.Map{
+					"qrCode": dataURL,
 				})
+			} else {
+
 				data := map[string]any{
 					"evento":   evento,
 					"clientId": clientId,
@@ -953,21 +962,25 @@ func main() {
 				sufixo := clientId[lastIndex+1:]
 				baseURL := mapOficial[sufixo]
 				sendToEndPoint(data, clientId, baseURL)
+				return c.Status(200).JSON(fiber.Map{
+					"qrCode": firstQRCode.Code,
+				})
 			}
 		} else {
 			// Caso já tenha ID armazenado, não é necessário gerar QR Code
-			c.JSON(200, gin.H{
-				"message": "Cliente já autenticado",
-			})
+
 			// Conecta o cliente
 			err = client.Connect()
 			if err != nil {
-				panic(err)
+				fmt.Println(err)
 			}
+			return c.Status(200).JSON(fiber.Map{
+				"message": "Cliente já autenticado",
+			})
 		}
 	})
 	fmt.Println("Rodando na porta " + PORT)
-	r.Run(":" + PORT) // Escutando na porta 8080
+	r.Listen(":" + PORT) // Escutando na porta 8080
 }
 func desconctarCliente(clientId string) bool {
 	fmt.Println("Desconectando " + clientId + " ...")
