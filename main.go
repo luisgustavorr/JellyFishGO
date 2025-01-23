@@ -930,7 +930,7 @@ func main() {
 							sendToEndPoint(data, clientId, baseURL)
 
 						} else {
-
+							fmt.Println("QR CODE", evt.Code)
 							data := map[string]any{
 								"evento":   evento,
 								"clientId": clientId,
