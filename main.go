@@ -464,9 +464,6 @@ func autoConnection() {
 		cleanClientId := strings.Replace(fileName, ".db", "", -1)
 		fmt.Println(cleanClientId)
 		getClient(cleanClientId)
-		if clientMap[cleanClientId] == nil {
-			os.Remove("./clients_db/" + fileName)
-		}
 
 	}
 }
@@ -501,6 +498,11 @@ func tryConnecting(clientId string) bool {
 		}
 	})
 	if client.Store.ID == nil {
+		container.Close()
+		err = os.Remove("./clients_db/" + clientId + ".db")
+		if err != nil {
+			fmt.Println("---- Erro excluindo arquivo de sessão :", err)
+		}
 		return false
 	} else {
 		err = client.Connect()
@@ -570,11 +572,13 @@ func main() {
 		messageKey := client.BuildMessageKey(JID, *client.Store.ID, messageID)
 		client.SendMessage(context.Background(), JID, &waE2E.Message{
 			ProtocolMessage: &waE2E.ProtocolMessage{
-				Key: messageKey,
+				Key:  messageKey,
+				Type: waE2E.ProtocolMessage_REVOKE.Enum(),
 			},
 		})
 		c.JSON(200, gin.H{
-			"message": "Cliente conectado",
+			"messageID": messageID,
+			"message":   "excluída",
 		})
 	})
 	r.POST("/destroySession", func(c *gin.Context) {
