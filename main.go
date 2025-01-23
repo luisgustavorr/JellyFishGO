@@ -500,7 +500,8 @@ func tryConnecting(clientId string) bool {
 		case *events.Disconnected:
 			fmt.Println("Cliente " + clientId + "desconectou do WhatsApp!")
 		case *events.LoggedOut:
-			desconctarCliente(clientId)
+
+			desconctarCliente(clientId, container)
 			fmt.Println("Cliente " + clientId + " deslogou do WhatsApp!")
 		case *events.Message:
 			if strings.Contains(clientId, "chat") {
@@ -509,11 +510,7 @@ func tryConnecting(clientId string) bool {
 		}
 	})
 	if client.Store.ID == nil {
-		container.Close()
-		err = os.Remove("./clients_db/" + clientId + ".db")
-		if err != nil {
-			fmt.Println("---- Erro excluindo arquivo de sessão :", err)
-		}
+		removeClientDB(clientId, container)
 		return false
 	} else {
 		err = client.Connect()
@@ -527,6 +524,14 @@ func tryConnecting(clientId string) bool {
 		return true
 
 	}
+}
+func removeClientDB(clientId string, container *sqlstore.Container) {
+	container.Close()
+	err := os.Remove("./clients_db/" + clientId + ".db")
+	if err != nil {
+		fmt.Println("---- Erro excluindo arquivo de sessão :", err)
+	}
+	return
 }
 func getClient(clientId string) *whatsmeow.Client {
 	if clientMap[clientId] == nil {
@@ -615,7 +620,9 @@ func main() {
 		client := getClient(clientId)
 		client.Logout()
 		clientMap[clientId] = nil
+		tryConnecting(clientId)
 		fmt.Println("Desconectando")
+
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Cliente desconectado",
 		})
@@ -873,7 +880,8 @@ func main() {
 				fmt.Println("Cliente " + clientId + "desconectou do WhatsApp!")
 			case *events.LoggedOut:
 				clientMap[clientId] = nil
-				desconctarCliente(clientId)
+				desconctarCliente(clientId, container)
+
 				fmt.Println("Cliente " + clientId + " deslogou do WhatsApp!")
 			case *events.Message:
 				if strings.Contains(clientId, "chat") {
@@ -937,7 +945,7 @@ func main() {
 						if repeats[clientId] >= 5 {
 							// desconectar
 							fmt.Println("Tentativas de login excedidas")
-							desconctarCliente(clientId)
+							desconctarCliente(clientId, container)
 							return
 						}
 						fmt.Printf("Tentativa %d de 5 do cliente %s\n", repeats[clientId], clientId)
@@ -1003,9 +1011,11 @@ func main() {
 	fmt.Println("Rodando na porta " + PORT)
 	r.Listen(":" + PORT) // Escutando na porta 8080
 }
-func desconctarCliente(clientId string) bool {
+func desconctarCliente(clientId string, container *sqlstore.Container) bool {
+
 	fmt.Println("Desconectando " + clientId + " ...")
 	client := getClient(clientId)
+	removeClientDB(clientId, container)
 	if client != nil {
 		clientMap[clientId] = nil
 		client.Logout()
