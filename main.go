@@ -54,26 +54,26 @@ func NewQueue() *MessagesQueue {
 	}
 }
 
-func (c *MessagesQueue) AddMessage(clientID string, message map[string]interface{}) {
+func (c *MessagesQueue) AddMessage(clientID string, message map[string]interface{}, number string) {
 	c.bufferLock.Lock()
 	defer c.bufferLock.Unlock()
 
 	// Inicializa o buffer para o cliente, se necessário
-	if _, exists := c.messageBuffer[clientID]; !exists {
-		c.messageBuffer[clientID] = []interface{}{}
+	if _, exists := c.messageBuffer[number]; !exists {
+		c.messageBuffer[number] = []interface{}{}
 	}
 
 	// Adiciona a mensagem ao buffer
-	c.messageBuffer[clientID] = append(c.messageBuffer[clientID], message)
+	c.messageBuffer[number] = append(c.messageBuffer[number], message)
 
 	// Reinicia o timeout para o cliente
-	if timer, exists := c.messageTimeout[clientID]; exists {
+	if timer, exists := c.messageTimeout[number]; exists {
 		timer.Stop()
 	}
 
 	// Calcula o tempo de espera com base no tamanho do buffer
-	messageCount := len(c.messageBuffer[clientID])
-	timerBetweenMessage := -0.15*float64(messageCount)*float64(messageCount) + 0.5*float64(messageCount) + 7
+	messageCount := len(c.messageBuffer[number])
+	timerBetweenMessage := -0.15*float64(messageCount)*float64(messageCount) + 0.5*float64(messageCount) + 5
 	if timerBetweenMessage < 0 {
 		timerBetweenMessage = 0.001
 	}
@@ -81,19 +81,20 @@ func (c *MessagesQueue) AddMessage(clientID string, message map[string]interface
 	fmt.Printf("ESPERANDO %.3f SEGUNDOS PARA %d MENSAGENS\n", timerBetweenMessage, messageCount)
 
 	// Define um novo timer para processar as mensagens
-	c.messageTimeout[clientID] = time.AfterFunc(timerDuration, func() {
-		c.ProcessMessages(clientID)
+	c.messageTimeout[number] = time.AfterFunc(timerDuration, func() {
+		c.ProcessMessages(clientID, number)
 	})
 }
-func (c *MessagesQueue) ProcessMessages(clientID string) {
+func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 	c.bufferLock.Lock()
 	defer c.bufferLock.Unlock()
 
 	// Pega as mensagens do buffer
-	messages := c.messageBuffer[clientID]
-	c.messageBuffer[clientID] = nil // Limpa o buffer
+	messages := c.messageBuffer[number]
+	c.messageBuffer[number] = nil // Limpa o buffer
 
 	fmt.Printf("ENVIANDO LOTES DE %d MENSAGENS DO "+clientID+"\n", len(messages))
+	fmt.Println(messages)
 	lastIndex := strings.LastIndex(clientID, "_")
 	sufixo := clientID[lastIndex+1:]
 	baseURL := strings.Split(mapOficial[sufixo], "chatbot")[0]
@@ -439,7 +440,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		objetoMensagens := map[string]interface{}{
 			"mensagem": mensagem,
 		}
-		messagesQueue.AddMessage(clientId, objetoMensagens)
+		messagesQueue.AddMessage(clientId, objetoMensagens, senderNumber)
 
 		fmt.Println("<- Mensagem RECEBIDA:", id_message, senderName, senderNumber, text)
 
@@ -517,6 +518,9 @@ func tryConnecting(clientId string) bool {
 	} else {
 		err = client.Connect()
 		clientMap[clientId] = client
+		if strings.Contains(clientId, "chat") {
+			setStatus(client, "conectado", types.JID{})
+		}
 		if err != nil {
 			fmt.Println("erro pegandoDevice", err)
 		}
@@ -539,6 +543,22 @@ func randomBetween(min, max int) int {
 
 var repeats map[string]int = make(map[string]int)
 
+func setStatus(client *whatsmeow.Client, status string, JID types.JID) {
+	if status == "conectado" {
+		typePresence := types.PresenceAvailable
+		client.SendPresence(typePresence)
+		return
+	}
+	if status == "digitando" {
+		client.SendChatPresence(JID, types.ChatPresenceComposing, "")
+		return
+	}
+	if status == "gravando" {
+		client.SendChatPresence(JID, types.ChatPresence(types.ChatPresenceMediaAudio), "")
+		return
+	}
+
+}
 func main() {
 	autoConnection()
 	err := godotenv.Load()
@@ -611,6 +631,7 @@ func main() {
 				"message": "Cliente não conectado",
 			})
 		}
+
 		// c.Status(200).JSON(fiber.Map{
 		// 	"message": "Arquivo recebido e enviado no WhatsApp.",
 		// })
@@ -696,6 +717,8 @@ func main() {
 					fmt.Println("NUMERO INVALIDO")
 					continue
 				}
+				setStatus(client, "digitando", JID)
+
 				message := &waE2E.Message{Conversation: &text}
 				if leitorZip != nil {
 					for _, arquivo := range leitorZip.File {
@@ -790,7 +813,6 @@ func main() {
 					fmt.Println("Tempo esperado para enviar a próxima mensagem:", tempoEsperado, "segundos...")
 					time.Sleep(time.Duration(tempoEsperado) * time.Second)
 				}
-
 			}
 		}()
 		return c.Status(200).JSON(fiber.Map{
