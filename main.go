@@ -981,6 +981,7 @@ func main() {
 					"qrCode": dataURL,
 				})
 			} else {
+				fmt.Println("QR CODE", firstQRCode.Code)
 
 				data := map[string]any{
 					"evento":   evento,
