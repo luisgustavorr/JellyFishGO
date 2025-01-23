@@ -101,6 +101,7 @@ func (c *MessagesQueue) ProcessMessages(clientID string) {
 	if strings.Contains(baseURL, "disparo") {
 		baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
 	}
+	fmt.Println("Mensagem enviadas", messages)
 	data := map[string]any{
 		"evento":   "MENSAGEM_RECEBIDA",
 		"clientId": clientID,
@@ -381,6 +382,8 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		}
 		// Convertendo para o timestamp (seconds desde a época Unix)
 		timestamp := t.Unix()
+		fmt.Println("DATA DA VENDA ,", datetime, "TIMESTAMP", timestamp)
+
 		var quotedMessageID string = contextInfo.GetStanzaID()
 		media, fileType := getMedia(fullInfoMessage, clientId)
 		edited := 0
@@ -744,7 +747,6 @@ func main() {
 				if editedIDMessage != "" {
 					message = client.BuildEdit(JID, editedIDMessage, message)
 				}
-				fmt.Println("Enviando mensagem", message)
 				retornoEnvio, err := client.SendMessage(context.Background(), JID, message)
 				if err != nil {
 					fmt.Println("Erro ao enviar mensagem", err)
@@ -999,11 +1001,6 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile *mu
 	kind, _ := filetype.Match(buf)
 	if kind == filetype.Unknown {
 		fmt.Println("Unknown file type")
-	} else {
-		fmt.Printf("Filename : %s\n", nomeArquivo)
-		fmt.Printf("Detected file type: %s\n", kind)
-		fmt.Printf("MIME: %s\n", kind.MIME.Value)
-		fmt.Printf("Extension: %s\n", kind.Extension)
 	}
 
 	mimeType := kind.MIME.Value
