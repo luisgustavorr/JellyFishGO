@@ -1019,7 +1019,7 @@ func desconctarCliente(clientId string, container *sqlstore.Container) bool {
 
 	fmt.Println("Desconectando " + clientId + " ...")
 	client := getClient(clientId)
-	// removeClientDB(clientId, container)
+	removeClientDB(clientId, container)
 	if client != nil {
 		clientMap[clientId] = nil
 		client.Logout()
