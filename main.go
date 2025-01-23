@@ -832,6 +832,7 @@ func main() {
 		fmt.Println("Gerar QR Code")
 		// Recupera o corpo da requisição e faz a bind para a estrutura de dados
 		clientId := c.FormValue("clientId")
+		fmt.Printf("Gerando QR Code para o cliente '%s'\n", clientId)
 		if strings.Contains(clientId, "_chat") {
 			store.DeviceProps = &waCompanionReg.DeviceProps{Os: proto.String("Shark Business(ChatBot)")}
 		} else if strings.Contains(clientId, "_shark") {
