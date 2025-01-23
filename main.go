@@ -22,6 +22,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/h2non/filetype"
 	"github.com/joho/godotenv"
 	_ "github.com/mattn/go-sqlite3" // Importação do driver SQLite
@@ -572,6 +573,7 @@ func main() {
 	}
 	PORT := os.Getenv("PORT_JELLYFISH_GOLANG")
 	r := fiber.New()
+	r.Use(cors.New())
 	r.Use(requestLogger)
 	// r.LoadHTMLGlob("templates/*.html")
 	r.Post("/verifyConnection", func(c *fiber.Ctx) error {
