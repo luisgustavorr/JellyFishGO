@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -103,6 +104,7 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 	}
 	data := map[string]any{
 		"evento":   "MENSAGEM_RECEBIDA",
+		"sender":   2,
 		"clientId": clientID,
 		"data":     messages,
 	}
@@ -114,54 +116,35 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 	}
 }
 
-func ZipFileToMultipartHeader(zipFile *zip.File) (*multipart.FileHeader, error) {
-	// Abrir o arquivo ZIP
-	rc, err := zipFile.Open()
-	if err != nil {
-		return nil, fmt.Errorf("erro ao abrir o arquivo ZIP: %v", err)
-	}
-	defer rc.Close()
-
-	// Ler o conteúdo do arquivo ZIP em um buffer
-	var buffer bytes.Buffer
-	if _, err := buffer.ReadFrom(rc); err != nil {
-		return nil, fmt.Errorf("erro ao ler o arquivo ZIP: %v", err)
-	}
-
-	// Criar um writer multipart
-	multipartBuffer := &bytes.Buffer{}
-	writer := multipart.NewWriter(multipartBuffer)
-
-	// Adicionar o arquivo ao writer
-	part, err := writer.CreateFormFile("file", zipFile.Name)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao criar o arquivo multipart: %v", err)
-	}
-	if _, err := part.Write(buffer.Bytes()); err != nil {
-		return nil, fmt.Errorf("erro ao escrever no arquivo multipart: %v", err)
-	}
-
-	// Finalizar o writer
-	if err := writer.Close(); err != nil {
-		return nil, fmt.Errorf("erro ao finalizar o writer multipart: %v", err)
-	}
-
-	// Simular o cabeçalho do arquivo multipart
-	req := multipart.NewReader(multipartBuffer, writer.Boundary())
-	form, err := req.ReadForm(10 << 20) // Limite de memória, 10MB nesse caso
-	if err != nil {
-		return nil, fmt.Errorf("erro ao ler o formulário multipart: %v", err)
-	}
-
-	// Retornar o primeiro arquivo no formulário como *multipart.FileHeader
-	for _, headers := range form.File {
-		for _, fileHeader := range headers {
-			return fileHeader, nil
+func salvarArquivoDeZip(zipFile *zip.File, idImage string) error {
+	// Abrir o arquivo ZIP para leitura
+	fileName := zipFile.Name
+	if strings.Contains(fileName, "documento_"+idImage) {
+		// Criar um arquivo local para salvar
+		destFile, err := os.Create("./uploads/" + fileName)
+		if err != nil {
+			return fmt.Errorf("erro ao criar arquivo: %v", err)
 		}
-	}
+		defer destFile.Close()
 
-	return nil, fmt.Errorf("nenhum arquivo encontrado no formulário multipart")
+		// Abrir o arquivo do ZIP
+		zipFileReader, err := zipFile.Open()
+		if err != nil {
+			return fmt.Errorf("erro ao abrir arquivo do zip: %v", err)
+		}
+		defer zipFileReader.Close()
+
+		// Copiar o conteúdo do arquivo do ZIP para o arquivo local
+		_, err = io.Copy(destFile, zipFileReader)
+		if err != nil {
+			return fmt.Errorf("erro ao copiar conteúdo para o arquivo: %v", err)
+		}
+
+		fmt.Printf("Arquivo %s salvo em ./uploads/%s\n", fileName, fileName)
+	}
+	return nil
 }
+
 func loadConfigInicial(dsn string) (map[string]string, map[string]string) {
 	// Conectar ao banco de dados
 	db, err := sql.Open("mysql", dsn)
@@ -217,11 +200,11 @@ func sendToEndPoint(data any, clientId string, url string) {
 
 	jsonData, err := json.Marshal(data)
 	if err != nil {
-		log.Fatalf("Erro ao criar marshal: %v", err)
+		fmt.Printf("Erro ao criar marshal: %v", err)
 	}
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		log.Fatalf("Erro ao criar a requisição: %v", err)
+		fmt.Printf("Erro ao criar a requisição: %v", err)
 	}
 
 	// Definindo os cabeçalhos
@@ -233,7 +216,7 @@ func sendToEndPoint(data any, clientId string, url string) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Fatalf("Erro ao enviar a requisição: %v", err)
+		fmt.Printf("Erro ao enviar a requisição: %v", err)
 	}
 	defer resp.Body.Close()
 	// Verificando o status da resposta
@@ -267,7 +250,7 @@ func getMedia(evt *events.Message, clientId string) (string, string) {
 		mediaMessage := imgMsg
 		data, err := client.Download(mediaMessage)
 		if err != nil {
-			log.Fatalf("Erro ao baixar a mídia: %v", err)
+			fmt.Printf("Erro ao baixar a mídia: %v", err)
 		}
 		base64Data := base64.StdEncoding.EncodeToString(data)
 		return base64Data, mimeType
@@ -277,7 +260,7 @@ func getMedia(evt *events.Message, clientId string) (string, string) {
 		mediaMessage := vidMsg
 		data, err := client.Download(mediaMessage)
 		if err != nil {
-			log.Fatalf("Erro ao baixar a mídia: %v", err)
+			fmt.Printf("Erro ao baixar a mídia: %v", err)
 		}
 		base64Data := base64.StdEncoding.EncodeToString(data)
 		return base64Data, mimeType
@@ -287,7 +270,7 @@ func getMedia(evt *events.Message, clientId string) (string, string) {
 		mediaMessage := audioMsg
 		data, err := client.Download(mediaMessage)
 		if err != nil {
-			log.Fatalf("Erro ao baixar a mídia: %v", err)
+			fmt.Printf("Erro ao baixar a mídia: %v", err)
 		}
 		base64Data := base64.StdEncoding.EncodeToString(data)
 		return base64Data, mimeType
@@ -297,7 +280,7 @@ func getMedia(evt *events.Message, clientId string) (string, string) {
 		mediaMessage := stickerMsg
 		data, err := client.Download(mediaMessage)
 		if err != nil {
-			log.Fatalf("Erro ao baixar a mídia: %v", err)
+			fmt.Printf("Erro ao baixar a mídia: %v", err)
 		}
 		base64Data := base64.StdEncoding.EncodeToString(data)
 		return base64Data, mimeType
@@ -307,7 +290,7 @@ func getMedia(evt *events.Message, clientId string) (string, string) {
 		mediaMessage := docMsg
 		data, err := client.Download(mediaMessage)
 		if err != nil {
-			log.Fatalf("Erro ao baixar a mídia: %v", err)
+			fmt.Printf("Erro ao baixar a mídia: %v", err)
 		}
 		base64Data := base64.StdEncoding.EncodeToString(data)
 		return base64Data, mimeType
@@ -340,7 +323,6 @@ func requestLogger(c *fiber.Ctx) error {
 	log.Printf("[%s] %s | Tempo: %v | ClientId: %s\n", method, path, duration, clientId)
 	return err
 }
-
 func handleMessage(fullInfoMessage *events.Message, clientId string, client *whatsmeow.Client) bool {
 	var groupMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "@g.us")
 	var statusMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "status")
@@ -360,86 +342,90 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	var id_message string = fullInfoMessage.Info.ID
 	var datetime string = fullInfoMessage.Info.Timestamp.String()
 	var editedInfo = message.GetProtocolMessage().GetKey().GetId()
+	layout := "2006-01-02 15:04:05"
+	// Parse da string para o tipo time.Time
+	trimmedDate := strings.Split(datetime, " -")[0]
+	t, err := time.Parse(layout, trimmedDate)
+	if err != nil {
+		fmt.Println("Erro ao converter data:", err)
+	}
+	// Convertendo para o timestamp (seconds desde a época Unix)
+	timestamp := t.Unix()
+	fmt.Println("DATA DA VENDA ,", datetime, "TIMESTAMP", timestamp)
 
+	var quotedMessageID string = contextInfo.GetStanzaID()
+	media, fileType := getMedia(fullInfoMessage, clientId)
+	edited := 0
+	validNumber, err := client.IsOnWhatsApp([]string{senderNumber})
+	if err != nil {
+		fmt.Println(err, "ERRO IS ONWHATSAPP")
+	}
+	response := validNumber[0] // Acessa o primeiro item da slice
+	JID := response.JID
 	if fromMe {
-		// fmt.Println("-> Mensagem ENVIADA:", id_message, senderName, senderNumber, text)
-		// data := map[string]any{
-		// 	"evento":   "MENSAGEM_ENVIADA",
-		// 	"clientId": clientId,
-		// 	"data": map[string]string{
-		// 		"newID":  editedInfo,
-		// 		"oldID":  id_message,
-		// 		"sender": senderNumber,
-		// 	},
-		// }
-		// lastIndex := strings.LastIndex(clientId, "_")
-		// sufixo := clientId[lastIndex+1:]
-		// baseURL := strings.Split(mapOficial[sufixo], "chatbot")[0]
-		// if strings.Contains(baseURL, "disparo") {
-		// 	baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
-		// }
-		// sendToEndPoint(data, clientId, baseURL+"chatbot/chat/mensagens/novo-id/")
+		senderNumber = fullInfoMessage.Info.Chat.User
+	}
+	params := &whatsmeow.GetProfilePictureParams{}
+	profilePic, err := client.GetProfilePictureInfo(JID, params)
+	if err != nil {
+		fmt.Println("sem perfil")
+	}
+	if editedInfo != "" {
+		edited = 1
+		id_message = editedInfo
+	}
+	messageAttr := map[string]interface{}{
+		"quotedMessage": quotedMessageID,
+		"edited":        edited,
+	}
+
+	if media != "" {
+		messageAttr["file_type"] = fileType
+		if strings.Contains(fileType, "audio") {
+			messageAttr["audio"] = media
+		} else {
+			messageAttr["media"] = media
+		}
+	}
+	mensagem := map[string]interface{}{
+		"id":        id_message,
+		"sender":    senderName,
+		"number":    senderNumber,
+		"text":      text,
+		"attrs":     messageAttr,
+		"timestamp": timestamp,
+	}
+	if profilePic != nil {
+		mensagem["perfil_image"] = profilePic.URL
+	}
+	objetoMensagens := map[string]interface{}{
+		"mensagem": mensagem,
+	}
+	if fromMe {
+		listaMensagens := []map[string]interface{}{}
+		fmt.Println("-> Mensagem ENVIADA PELO WHATSAPP:", id_message, senderName, senderNumber, text)
+		listaMensagens = append(listaMensagens, objetoMensagens)
+
+		data := map[string]any{
+			"evento":   "MENSAGEM_RECEBIDA",
+			"sender":   1,
+			"clientId": clientId,
+			"data":     listaMensagens,
+		}
+		lastIndex := strings.LastIndex(clientId, "_")
+		sufixo := clientId[lastIndex+1:]
+		baseURL := strings.Split(mapOficial[sufixo], "chatbot")[0]
+		if strings.Contains(baseURL, "disparo") {
+			baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
+		}
+		sendToEndPoint(data, clientId, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
+
 	} else {
 		if messagesToSend[clientId] == nil {
 			messagesToSend[clientId] = []*waE2E.Message{}
 		}
 		messagesToSend[clientId] = append(messagesToSend[clientId], message)
-		layout := "2006-01-02 15:04:05"
-		// Parse da string para o tipo time.Time
-		trimmedDate := strings.Split(datetime, " -")[0]
-		t, err := time.Parse(layout, trimmedDate)
-		if err != nil {
-			fmt.Println("Erro ao converter data:", err)
-		}
-		// Convertendo para o timestamp (seconds desde a época Unix)
-		timestamp := t.Unix()
-		fmt.Println("DATA DA VENDA ,", datetime, "TIMESTAMP", timestamp)
 
-		var quotedMessageID string = contextInfo.GetStanzaID()
-		media, fileType := getMedia(fullInfoMessage, clientId)
-		edited := 0
-		validNumber, err := client.IsOnWhatsApp([]string{senderNumber})
-		if err != nil {
-			fmt.Println(err, "ERRO IS ONWHATSAPP")
-		}
-		response := validNumber[0] // Acessa o primeiro item da slice
-		JID := response.JID
-		params := &whatsmeow.GetProfilePictureParams{}
-		profilePic, err := client.GetProfilePictureInfo(JID, params)
-		if err != nil {
-			fmt.Println("sem perfil")
-		}
-		if editedInfo != "" {
-			edited = 1
-			id_message = editedInfo
-		}
-		messageAttr := map[string]interface{}{
-			"quotedMessage": quotedMessageID,
-			"edited":        edited,
-		}
-
-		if media != "" {
-			messageAttr["file_type"] = fileType
-			if strings.Contains(fileType, "audio") {
-				messageAttr["audio"] = media
-			} else {
-				messageAttr["media"] = media
-			}
-		}
-		mensagem := map[string]interface{}{
-			"id":        id_message,
-			"sender":    senderName,
-			"number":    senderNumber,
-			"text":      text,
-			"attrs":     messageAttr,
-			"timestamp": timestamp,
-		}
-		if profilePic != nil {
-			mensagem["perfil_image"] = profilePic.URL
-		}
-		objetoMensagens := map[string]interface{}{
-			"mensagem": mensagem,
-		}
 		messagesQueue.AddMessage(clientId, objetoMensagens, senderNumber)
 
 		fmt.Println("<- Mensagem RECEBIDA:", id_message, senderName, senderNumber, text)
@@ -453,11 +439,10 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 func autoConnection() {
 	dir := "./clients_db" // Substitua pelo caminho da sua pasta
 	fmt.Println("---------RODANDO")
-
 	// Listar arquivos na pasta
 	files, err := os.ReadDir(dir)
 	if err != nil {
-		log.Fatalf("Erro ao ler a pasta: %v", err)
+		fmt.Printf("Erro ao ler a pasta: %v", err)
 	}
 
 	// Criar uma fatia para armazenar os nomes dos arquivos
@@ -482,7 +467,7 @@ func tryConnecting(clientId string) bool {
 	dbLog := waLog.Stdout("Database", "INFO", true)
 	container, err := sqlstore.New("sqlite3", "file:./clients_db/"+clientId+".db?_foreign_keys=on", dbLog)
 	if err != nil {
-		panic(err)
+		fmt.Println(err)
 	}
 	deviceStore, err := container.GetFirstDevice()
 	if err != nil {
@@ -572,8 +557,14 @@ func main() {
 		log.Fatal("Erro ao carregar o arquivo .env")
 	}
 	PORT := os.Getenv("PORT_JELLYFISH_GOLANG")
-	r := fiber.New()
+	r := fiber.New(fiber.Config{
+		ReadTimeout:       10 * time.Minute, // Ajuste o tempo limite de leitura conforme necessário
+		WriteTimeout:      10 * time.Minute,
+		StreamRequestBody: true,
+		BodyLimit:         20 * 1024 * 1024,
+	})
 	r.Use(cors.New())
+
 	r.Use(requestLogger)
 	// r.LoadHTMLGlob("templates/*.html")
 	r.Post("/verifyConnection", func(c *fiber.Ctx) error {
@@ -647,8 +638,18 @@ func main() {
 		infoObjects := c.FormValue("infoObjects")
 		var documento_padrao *multipart.FileHeader = nil
 		documento_padrao, err = c.FormFile("documento_padrao")
+
 		if err != nil {
 			fmt.Println("Nenhum arquivo enviado.")
+		}
+		if documento_padrao != nil {
+			savePath := "./uploads/" + clientId + documento_padrao.Filename
+			// Salvar o arquivo no caminho especificado
+			if err := c.SaveFile(documento_padrao, savePath); err != nil {
+				fmt.Printf("Erro ao salvar o arquivo: %v", err)
+			} else {
+				fmt.Println("Arquivo salvo com sucesso!")
+			}
 		}
 		var files *multipart.FileHeader = nil
 		files, err = c.FormFile("file")
@@ -660,14 +661,13 @@ func main() {
 		// Deserializando o JSON para o map
 		err = json.Unmarshal([]byte(infoObjects), &result)
 		if err != nil {
-			log.Fatalf("Erro ao converter JSON: %v", err)
+			fmt.Printf("Erro ao converter JSON: %v", err)
 		}
 
 		// Exibindo o resultado
 		go func() {
 			var leitorZip *zip.Reader = nil
 			if files != nil {
-
 				zipFile, err := files.Open()
 				if err != nil {
 					log.Fatal("Erro abrindo ZIP", err)
@@ -681,13 +681,13 @@ func main() {
 				}
 				leitorZip = zipReader
 			}
-
 			for _, item := range result {
 				fmt.Println(item["number"]) // Exibe cada item do JSON como um map[string]interface{}
 				number := "+" + item["number"].(string)
 				idImage, ok := item["id_image"].(string)
 				if !ok {
 					log.Println("Erro ao obter id_image")
+					idImage = "UNDEFINED"
 				}
 				quotedMessage, ok := item["quotedMessage"].(map[string]interface{})
 				if !ok {
@@ -731,26 +731,45 @@ func main() {
 				message := &waE2E.Message{Conversation: &text}
 				if leitorZip != nil {
 					for _, arquivo := range leitorZip.File {
+						fmt.Println(arquivo, idImage)
 						if strings.Contains(arquivo.Name, "documento_"+idImage) {
-							fmt.Println("Arquivo encontrado:", arquivo.Name)
-							multipartFileHeader, err := ZipFileToMultipartHeader(arquivo)
+							fmt.Println("Arquivos encontrados no ZIP:", leitorZip.File)
+
+							// Criar um arquivo local para salvar
+							fileName := strings.Replace(arquivo.Name, "documento_"+idImage+"_", "", -1)
+							destFile, err := os.Create("./uploads/" + clientId + fileName)
 							if err != nil {
-								fmt.Println("Erro ao converter arquivo zip para multipart", err)
+								fmt.Errorf("erro ao criar arquivo: %v", err)
 							}
+							defer destFile.Close()
+
+							// Abrir o arquivo do ZIP
+							zipFileReader, err := arquivo.Open()
+							if err != nil {
+								fmt.Errorf("erro ao abrir arquivo do zip: %v", err)
+							}
+							defer zipFileReader.Close()
+							// Copiar o conteúdo do arquivo do ZIP para o arquivo local
+							_, err = io.Copy(destFile, zipFileReader)
+							if err != nil {
+								fmt.Errorf("erro ao copiar conteúdo para o arquivo: %v", err)
+							}
+							fmt.Printf("Arquivo %s salvo em ./uploads/%s\n", fileName, fileName)
 							uniqueFileText := text
 							if documento_padrao != nil {
 								uniqueFileText = ""
 							}
-							multipartFileHeader.Filename = strings.Replace(multipartFileHeader.Filename, "documento_"+idImage+"_", "", -1)
-							message = prepararMensagemArquivo(uniqueFileText, message, multipartFileHeader, client)
+
 							if documento_padrao != nil {
-								client.SendMessage(context.Background(), JID, message)
+								client.SendMessage(context.Background(), JID, prepararMensagemArquivo(uniqueFileText, message, "./uploads/"+clientId+fileName, client, clientId))
+								fmt.Println("NOVAMENTE MENSAGEM", message)
 							}
 						}
 					}
 				}
 				if documento_padrao != nil {
-					message = prepararMensagemArquivo(text, message, documento_padrao, client)
+
+					message = prepararMensagemArquivo(text, message, "./uploads/"+clientId+documento_padrao.Filename, client, clientId)
 				}
 				if quotedMessage != nil {
 					messageID, ok := quotedMessage["messageID"].(string)
@@ -791,6 +810,7 @@ func main() {
 				if editedIDMessage != "" {
 					message = client.BuildEdit(JID, editedIDMessage, message)
 				}
+				fmt.Println("ENVIANDO MESNSAGEM", message)
 				retornoEnvio, err := client.SendMessage(context.Background(), JID, message)
 				if err != nil {
 					fmt.Println("Erro ao enviar mensagem", err)
@@ -807,7 +827,6 @@ func main() {
 							"sender": strings.Replace(number, "+", "", -1),
 						},
 					}
-					// fmt.Println("Enviando evento de mensagem enviada", data)
 					lastIndex := strings.LastIndex(clientId, "_")
 					sufixo := clientId[lastIndex+1:]
 					baseURL := strings.Split(mapOficial[sufixo], "chatbot")[0]
@@ -850,11 +869,11 @@ func main() {
 
 		container, err := sqlstore.New("sqlite3", "file:./clients_db/"+clientId+".db?_foreign_keys=on", dbLog)
 		if err != nil {
-			panic(err)
+			fmt.Println(err)
 		}
 		deviceStore, err := container.GetFirstDevice()
 		if err != nil {
-			panic(err)
+			fmt.Println(err)
 		}
 		// Crie o cliente WhatsApp
 		clientLog := waLog.Stdout("Client", "ERROR", true)
@@ -898,7 +917,7 @@ func main() {
 			// Conecte o cliente
 			err = client.Connect()
 			if err != nil {
-				panic(err)
+				fmt.Println(err)
 			}
 			// Aqui, aguardamos pelo QR Code gerado
 			var evento string = "QRCODE_ATUALIZADO"
@@ -913,7 +932,7 @@ func main() {
 						if qrCode {
 							png, err := qrcode.Encode(evt.Code, qrcode.Medium, 256) // Tamanho: 256x256 pixels
 							if err != nil {
-								log.Fatalf("Erro ao gerar QR Code: %v", err)
+								fmt.Println("Erro ao gerar QR Code: %v", err)
 							}
 							// Converter para Base64
 							base64Img := base64.StdEncoding.EncodeToString(png)
@@ -962,7 +981,7 @@ func main() {
 			if qrCode {
 				png, err := qrcode.Encode(firstQRCode.Code, qrcode.Medium, 256) // Tamanho: 256x256 pixels
 				if err != nil {
-					log.Fatalf("Erro ao gerar QR Code: %v", err)
+					fmt.Printf("Erro ao gerar QR Code: %v", err)
 				}
 				// Converter para Base64
 				base64Img := base64.StdEncoding.EncodeToString(png)
@@ -1013,7 +1032,6 @@ func main() {
 	r.Listen(":" + PORT) // Escutando na porta 8080
 }
 func desconctarCliente(clientId string, container *sqlstore.Container) bool {
-
 	fmt.Println("Desconectando " + clientId + " ...")
 	client := getClient(clientId)
 	if client != nil {
@@ -1031,20 +1049,27 @@ func desconctarCliente(clientId string, container *sqlstore.Container) bool {
 	sendToEndPoint(data, clientId, baseURL)
 	return true
 }
-func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile *multipart.FileHeader, client *whatsmeow.Client) *waE2E.Message {
+func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile string, client *whatsmeow.Client, clientId string) *waE2E.Message {
 	// Abrindo o arquivo
-	file, err := chosedFile.Open()
+	fmt.Println("---------------", message)
+	file, err := os.Open(chosedFile)
 	if err != nil {
-		log.Fatalf("Erro ao abrir o arquivo: %v", err)
+		fmt.Printf("Erro ao abrir o arquivo: %v", err)
 	}
 	defer file.Close()
+	defer func() {
+		err = os.Remove(chosedFile)
+		if err != nil {
+			fmt.Println("Erro ao excluir arquivo", err)
+		}
+	}()
 	// Detectando o tipo MIME
 	buf := make([]byte, 512) // O pacote mime usa os primeiros 512 bytes para detectar o tipo MIME
 	_, err = file.Read(buf)
 	if err != nil {
-		log.Fatalf("Erro ao ler o arquivo: %v", err)
+		fmt.Printf("Erro ao ler o arquivo: %v", err)
 	}
-	nomeArquivo := chosedFile.Filename
+	nomeArquivo := strings.Replace(strings.Split(chosedFile, "/")[len(strings.Split(chosedFile, "/"))-1], clientId, "", -1)
 
 	kind, _ := filetype.Match(buf)
 	if kind == filetype.Unknown {
@@ -1062,20 +1087,20 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile *mu
 	// Lendo o conteúdo do arquivo completo
 	contentBuf := bytes.NewBuffer(nil)
 	if _, err := contentBuf.ReadFrom(file); err != nil {
-		log.Fatalf("Erro ao ler o arquivo completo: %v", err)
+		fmt.Printf("Erro ao ler o arquivo completo: %v", err)
 	}
 	// Fazendo o upload da mídia
 
 	// Criando a mensagem de imagem
 	// Atribuindo a mensagem de imagem
-	message.Conversation = nil
-
+	mensagem_ := *message
+	mensagem_.Conversation = nil
 	semExtensao := strings.TrimSuffix(nomeArquivo, filepath.Ext(nomeArquivo))
 
 	if strings.Contains(nomeArquivo, ".mp3") {
 		resp, err := client.Upload(context.Background(), contentBuf.Bytes(), whatsmeow.MediaAudio)
 		if err != nil {
-			log.Fatalf("Erro ao fazer upload da mídia: %v", err)
+			fmt.Printf("Erro ao fazer upload da mídia: %v", err)
 		}
 		imageMsg := &waE2E.AudioMessage{
 			Mimetype:      proto.String(mimeType),
@@ -1086,12 +1111,12 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile *mu
 			FileSHA256:    resp.FileSHA256,
 			FileLength:    &resp.FileLength,
 		}
-		message.Conversation = nil
-		message.AudioMessage = imageMsg
+		mensagem_.Conversation = nil
+		mensagem_.AudioMessage = imageMsg
 	} else if filetype.IsImage(buf) {
 		resp, err := client.Upload(context.Background(), contentBuf.Bytes(), whatsmeow.MediaImage)
 		if err != nil {
-			log.Fatalf("Erro ao fazer upload da mídia: %v", err)
+			fmt.Printf("Erro ao fazer upload da mídia: %v", err)
 		}
 		fmt.Println("O arquivo é uma imagem válida.")
 
@@ -1105,12 +1130,12 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile *mu
 			FileSHA256:    resp.FileSHA256,
 			FileLength:    &resp.FileLength,
 		}
-		message.ImageMessage = imageMsg
+		mensagem_.ImageMessage = imageMsg
 
 	} else if filetype.IsVideo(buf) {
 		resp, err := client.Upload(context.Background(), contentBuf.Bytes(), whatsmeow.MediaVideo)
 		if err != nil {
-			log.Fatalf("Erro ao fazer upload da mídia: %v", err)
+			fmt.Printf("Erro ao fazer upload da mídia: %v", err)
 		}
 		imageMsg := &waE2E.VideoMessage{
 			Caption:       proto.String(text),
@@ -1125,11 +1150,11 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile *mu
 
 			//JPEGThumbnail: thumbnailBuf.Bytes(), // removed for this example
 		}
-		message.VideoMessage = imageMsg
+		mensagem_.VideoMessage = imageMsg
 	} else if filetype.IsAudio(buf) {
 		resp, err := client.Upload(context.Background(), contentBuf.Bytes(), whatsmeow.MediaAudio)
 		if err != nil {
-			log.Fatalf("Erro ao fazer upload da mídia: %v", err)
+			fmt.Printf("Erro ao fazer upload da mídia: %v", err)
 		}
 		imageMsg := &waE2E.AudioMessage{
 			Mimetype:      proto.String(mimeType),
@@ -1140,12 +1165,12 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile *mu
 			FileSHA256:    resp.FileSHA256,
 			FileLength:    &resp.FileLength,
 		}
-		message.Conversation = nil
-		message.AudioMessage = imageMsg
+		mensagem_.Conversation = nil
+		mensagem_.AudioMessage = imageMsg
 	} else {
 		resp, err := client.Upload(context.Background(), contentBuf.Bytes(), whatsmeow.MediaDocument)
 		if err != nil {
-			log.Fatalf("Erro ao fazer upload da mídia: %v", err)
+			fmt.Printf("Erro ao fazer upload da mídia: %v", err)
 		}
 		var isDocx bool = strings.Contains(nomeArquivo, ".docx")
 		if isDocx {
@@ -1166,7 +1191,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile *mu
 			FileSHA256:    resp.FileSHA256,
 			FileLength:    &resp.FileLength,
 		}
-		message.DocumentMessage = documentMsg
+		mensagem_.DocumentMessage = documentMsg
 	}
-	return message
+	return &mensagem_
 }
