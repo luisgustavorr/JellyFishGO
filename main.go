@@ -421,17 +421,16 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		// sendToEndPoint(data, clientId, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
 
 	} else {
-		if messagesToSend[clientId] == nil {
-			messagesToSend[clientId] = []*waE2E.Message{}
+		if media != "" || text != "" {
+			if messagesToSend[clientId] == nil {
+				messagesToSend[clientId] = []*waE2E.Message{}
+			}
+			messagesToSend[clientId] = append(messagesToSend[clientId], message)
+			messagesQueue.AddMessage(clientId, objetoMensagens, senderNumber)
+			fmt.Println("<- Mensagem RECEBIDA:", id_message, senderName, senderNumber, text)
+			var MessageID []types.MessageID = []types.MessageID{id_message}
+			client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
 		}
-		messagesToSend[clientId] = append(messagesToSend[clientId], message)
-
-		messagesQueue.AddMessage(clientId, objetoMensagens, senderNumber)
-
-		fmt.Println("<- Mensagem RECEBIDA:", id_message, senderName, senderNumber, text)
-
-		var MessageID []types.MessageID = []types.MessageID{id_message}
-		client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
 	}
 	return true
 }
