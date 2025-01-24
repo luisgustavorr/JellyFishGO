@@ -95,7 +95,6 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 	c.messageBuffer[number] = nil // Limpa o buffer
 
 	fmt.Printf("ENVIANDO LOTES DE %d MENSAGENS DO "+clientID+"\n", len(messages))
-	fmt.Println(messages)
 	lastIndex := strings.LastIndex(clientID, "_")
 	sufixo := clientID[lastIndex+1:]
 	baseURL := strings.Split(mapOficial[sufixo], "chatbot")[0]
@@ -526,14 +525,15 @@ func tryConnecting(clientId string) bool {
 
 	}
 }
-func removeClientDB(clientId string, container *sqlstore.Container) {
-	container.Close()
-	err := os.Remove("./clients_db/" + clientId + ".db")
-	if err != nil {
-		fmt.Println("---- Erro excluindo arquivo de sessão :", err)
-	}
-	return
-}
+
+//	func removeClientDB(clientId string, container *sqlstore.Container) {
+//		container.Close()
+//		err := os.Remove("./clients_db/" + clientId + ".db")
+//		if err != nil {
+//			fmt.Println("---- Erro excluindo arquivo de sessão :", err)
+//		}
+//		return
+//	}
 func getClient(clientId string) *whatsmeow.Client {
 	if clientMap[clientId] == nil {
 		tryConnecting(clientId)
@@ -829,7 +829,6 @@ func main() {
 		})
 	})
 	r.Post("/getQRCode", func(c *fiber.Ctx) error {
-		fmt.Println("Gerar QR Code")
 		// Recupera o corpo da requisição e faz a bind para a estrutura de dados
 		clientId := c.FormValue("clientId")
 		fmt.Printf("Gerando QR Code para o cliente '%s'\n", clientId)
@@ -933,7 +932,6 @@ func main() {
 							sendToEndPoint(data, clientId, baseURL)
 
 						} else {
-							fmt.Println("QR CODE", evt.Code)
 							data := map[string]any{
 								"evento":   evento,
 								"clientId": clientId,
@@ -984,7 +982,6 @@ func main() {
 					"qrCode": dataURL,
 				})
 			} else {
-				fmt.Println("QR CODE", firstQRCode.Code)
 
 				data := map[string]any{
 					"evento":   evento,
@@ -1019,7 +1016,6 @@ func desconctarCliente(clientId string, container *sqlstore.Container) bool {
 
 	fmt.Println("Desconectando " + clientId + " ...")
 	client := getClient(clientId)
-	removeClientDB(clientId, container)
 	if client != nil {
 		clientMap[clientId] = nil
 		client.Logout()
