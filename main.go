@@ -402,23 +402,23 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		"mensagem": mensagem,
 	}
 	if fromMe {
-		// listaMensagens := []map[string]interface{}{}
-		// fmt.Println("-> Mensagem ENVIADA PELO WHATSAPP:", id_message, senderName, senderNumber, text)
-		// listaMensagens = append(listaMensagens, objetoMensagens)
+		listaMensagens := []map[string]interface{}{}
+		fmt.Println("-> Mensagem ENVIADA PELO WHATSAPP:", id_message, senderName, senderNumber, text)
+		listaMensagens = append(listaMensagens, objetoMensagens)
 
-		// data := map[string]any{
-		// 	"evento":   "MENSAGEM_RECEBIDA",
-		// 	"sender":   1,
-		// 	"clientId": clientId,
-		// 	"data":     listaMensagens,
-		// }
-		// lastIndex := strings.LastIndex(clientId, "_")
-		// sufixo := clientId[lastIndex+1:]
-		// baseURL := strings.Split(mapOficial[sufixo], "chatbot")[0]
-		// if strings.Contains(baseURL, "disparo") {
-		// 	baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
-		// }
-		// sendToEndPoint(data, clientId, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
+		data := map[string]any{
+			"evento":   "MENSAGEM_RECEBIDA",
+			"sender":   1,
+			"clientId": clientId,
+			"data":     listaMensagens,
+		}
+		lastIndex := strings.LastIndex(clientId, "_")
+		sufixo := clientId[lastIndex+1:]
+		baseURL := strings.Split(mapOficial[sufixo], "chatbot")[0]
+		if strings.Contains(baseURL, "disparo") {
+			baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
+		}
+		sendToEndPoint(data, clientId, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
 
 	} else {
 		if media != "" || text != "" {
