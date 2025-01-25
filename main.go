@@ -809,7 +809,6 @@ func main() {
 				if editedIDMessage != "" {
 					message = client.BuildEdit(JID, editedIDMessage, message)
 				}
-				fmt.Println("ENVIANDO MESNSAGEM", message)
 				retornoEnvio, err := client.SendMessage(context.Background(), JID, message)
 				if err != nil {
 					fmt.Println("Erro ao enviar mensagem", err)
