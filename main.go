@@ -42,6 +42,7 @@ import (
 var clientMap = make(map[string]*whatsmeow.Client)
 var mapOficial, mapDesenvolvimento = loadConfigInicial("spacemid_luis:G4l01313@tcp(pro107.dnspro.com.br:3306)/spacemid_sistem_adm")
 var messagesToSend = make(map[string][]*waE2E.Message)
+var focusedMessagesKeys = []string{}
 
 type MessagesQueue struct {
 	messageBuffer  map[string][]interface{}
@@ -323,13 +324,31 @@ func requestLogger(c *fiber.Ctx) error {
 	log.Printf("[%s] %s | Tempo: %v | ClientId: %s\n", method, path, duration, clientId)
 	return err
 }
+func getMessageFocus(arr []string, id_message string) string {
+	for _, v := range arr {
+		if strings.Contains(v, "_"+id_message) {
+			return strings.Split(v, "_")[0]
+		}
+	}
+	return ""
+}
+func removeString(slice []string, value string) []string {
+	filtered := []string{}
+	for _, v := range slice {
+		if v != value { // Mantém apenas os valores diferentes
+			filtered = append(filtered, v)
+		}
+	}
+	return filtered
+}
 func handleMessage(fullInfoMessage *events.Message, clientId string, client *whatsmeow.Client) bool {
 	var groupMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "@g.us")
+	var channel bool = fullInfoMessage.SourceWebMsg.GetBroadcast()
 	var statusMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "status")
 	var contactMessage bool = fullInfoMessage.Message.GetContactMessage() != nil
 	var LocationMessage bool = fullInfoMessage.Message.LocationMessage != nil
 	var pollMessage bool = fullInfoMessage.Message.GetPollUpdateMessage() != nil || fullInfoMessage.Message.GetPollCreationMessage() != nil || fullInfoMessage.Message.GetPollCreationMessageV2() != nil || fullInfoMessage.Message.GetPollCreationMessageV3() != nil || fullInfoMessage.Message.GetPollCreationMessageV4() != nil || fullInfoMessage.Message.GetPollCreationMessageV5() != nil
-	if groupMessage || statusMessage || pollMessage || contactMessage || LocationMessage {
+	if groupMessage || statusMessage || pollMessage || contactMessage || LocationMessage || channel {
 		fmt.Println("Mensagem de grupo ou status, ignorando...", fullInfoMessage.Info.Chat.String())
 		return false
 	}
@@ -351,7 +370,6 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	}
 	// Convertendo para o timestamp (seconds desde a época Unix)
 	timestamp := t.Unix()
-	fmt.Println("DATA DA VENDA ,", datetime, "TIMESTAMP", timestamp)
 
 	var quotedMessageID string = contextInfo.GetStanzaID()
 	media, fileType := getMedia(fullInfoMessage, clientId)
@@ -387,6 +405,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			messageAttr["media"] = media
 		}
 	}
+
 	mensagem := map[string]interface{}{
 		"id":        id_message,
 		"sender":    senderName,
@@ -394,6 +413,13 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		"text":      text,
 		"attrs":     messageAttr,
 		"timestamp": timestamp,
+	}
+	var focus = getMessageFocus(focusedMessagesKeys, id_message)
+	if focus != "" {
+		fmt.Println("MENSAGEM FOCADA", focus)
+		mensagem["focus"] = focus
+		focusedMessagesKeys = removeString(focusedMessagesKeys, focus+"_"+id_message)
+		fmt.Println(focusedMessagesKeys)
 	}
 	if profilePic != nil {
 		mensagem["perfil_image"] = profilePic.URL
@@ -658,7 +684,7 @@ func main() {
 			fmt.Println("Nenhum arquivo enviado.")
 		}
 		var result []map[string]interface{}
-
+		fmt.Println(infoObjects)
 		// Deserializando o JSON para o map
 		err = json.Unmarshal([]byte(infoObjects), &result)
 		if err != nil {
@@ -674,7 +700,6 @@ func main() {
 					log.Fatal("Erro abrindo ZIP", err)
 				}
 				defer zipFile.Close()
-
 				// Lendo o arquivo ZIP
 				zipReader, err := zip.NewReader(zipFile, files.Size)
 				if err != nil {
@@ -690,10 +715,20 @@ func main() {
 					log.Println("Erro ao obter id_image")
 					idImage = "UNDEFINED"
 				}
+				focus, ok := item["focus"].(string)
+				if !ok {
+					log.Println("Erro ao obter focus")
+				}
 				quotedMessage, ok := item["quotedMessage"].(map[string]interface{})
 				if !ok {
 					log.Println("quotedMessage não é um mapa.")
 				}
+				fmt.Println(item["paymentMessage"])
+				paymentMessage, ok := item["paymentMessage"].(map[string]interface{})
+				if !ok {
+					log.Println("paymentMessage não é um mapa.")
+				}
+
 				editedIDMessage, ok := item["editedIDMessage"].(string)
 				if !ok {
 					// Defina o valor padrão ou apenas ignore a chave
@@ -811,13 +846,25 @@ func main() {
 				if editedIDMessage != "" {
 					message = client.BuildEdit(JID, editedIDMessage, message)
 				}
+				if paymentMessage != nil {
+
+				}
+
 				retornoEnvio, err := client.SendMessage(context.Background(), JID, message)
 				if err != nil {
 					fmt.Println("Erro ao enviar mensagem", err)
 				}
 				fmt.Println("-> Mensagem ENVIADA:", retornoEnvio.ID, clientId, text)
 
+				if focus != "" {
+					if focusedMessagesKeys == nil {
+						focusedMessagesKeys = []string{}
+					}
+					focusedMessagesKeys = append(focusedMessagesKeys, focus+"_"+retornoEnvio.ID)
+
+				}
 				if idMensagem != "" {
+
 					data := map[string]any{
 						"evento":   "MENSAGEM_ENVIADA",
 						"clientId": clientId,
@@ -842,6 +889,13 @@ func main() {
 					time.Sleep(time.Duration(tempoEsperado) * time.Second)
 				}
 			}
+			if documento_padrao != nil {
+				err = os.Remove("./uploads/" + clientId + documento_padrao.Filename)
+				if err != nil {
+					fmt.Println("Erro ao excluir arquivo", err)
+				}
+			}
+
 		}()
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Arquivo recebido e enviado no WhatsApp.",
@@ -1051,18 +1105,12 @@ func desconctarCliente(clientId string, container *sqlstore.Container) bool {
 }
 func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile string, client *whatsmeow.Client, clientId string) *waE2E.Message {
 	// Abrindo o arquivo
-	fmt.Println("---------------", message)
 	file, err := os.Open(chosedFile)
 	if err != nil {
 		fmt.Printf("Erro ao abrir o arquivo: %v", err)
 	}
 	defer file.Close()
-	defer func() {
-		err = os.Remove(chosedFile)
-		if err != nil {
-			fmt.Println("Erro ao excluir arquivo", err)
-		}
-	}()
+
 	// Detectando o tipo MIME
 	buf := make([]byte, 512) // O pacote mime usa os primeiros 512 bytes para detectar o tipo MIME
 	_, err = file.Read(buf)
