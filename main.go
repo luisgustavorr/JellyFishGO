@@ -379,7 +379,7 @@ func sendToEndPoint(data any, url string) {
 	}
 	defer resp.Body.Close()
 	// Verificando o status da resposta
-	fmt.Println("Resposta Status:", resp)
+	fmt.Println("Resposta Status:", resp.Status)
 
 }
 func getText(message *waE2E.Message) string {
