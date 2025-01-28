@@ -795,10 +795,12 @@ func main() {
 							if documento_padrao != nil {
 								uniqueFileText = ""
 							}
-
+							tempMessage := prepararMensagemArquivo(uniqueFileText, message, "./uploads/"+clientId+fileName, client, clientId)
 							if documento_padrao != nil {
-								client.SendMessage(context.Background(), JID, prepararMensagemArquivo(uniqueFileText, message, "./uploads/"+clientId+fileName, client, clientId))
+								client.SendMessage(context.Background(), JID, tempMessage)
 								fmt.Println("NOVAMENTE MENSAGEM", message)
+							} else {
+								message = tempMessage
 							}
 						}
 					}
@@ -849,7 +851,7 @@ func main() {
 				if paymentMessage != nil {
 
 				}
-
+				fmt.Println("Mssg", message)
 				retornoEnvio, err := client.SendMessage(context.Background(), JID, message)
 				if err != nil {
 					fmt.Println("Erro ao enviar mensagem", err)
@@ -889,12 +891,14 @@ func main() {
 					time.Sleep(time.Duration(tempoEsperado) * time.Second)
 				}
 			}
-			if documento_padrao != nil {
-				err = os.Remove("./uploads/" + clientId + documento_padrao.Filename)
-				if err != nil {
-					fmt.Println("Erro ao excluir arquivo", err)
+			defer func() {
+				if documento_padrao != nil {
+					err = os.Remove("./uploads/" + clientId + documento_padrao.Filename)
+					if err != nil {
+						fmt.Println("Erro ao excluir arquivo", err)
+					}
 				}
-			}
+			}()
 
 		}()
 		return c.Status(200).JSON(fiber.Map{
