@@ -4,3 +4,5 @@ clients_db
 jellyFish.*
 *.js
 uploads
+arquivos_disparos_programados/*
+*.db

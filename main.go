@@ -109,7 +109,7 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 		"clientId": clientID,
 		"data":     messages,
 	}
-	sendToEndPoint(data, clientID, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
+	sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
 	// Remove o timer após o processamento
 	if timer, exists := c.messageTimeout[clientID]; exists {
 		timer.Stop()
@@ -117,42 +117,196 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 	}
 }
 
-func salvarArquivoDeZip(zipFile *zip.File, idImage string) error {
-	// Abrir o arquivo ZIP para leitura
-	fileName := zipFile.Name
-	if strings.Contains(fileName, "documento_"+idImage) {
-		// Criar um arquivo local para salvar
-		destFile, err := os.Create("./uploads/" + fileName)
-		if err != nil {
-			return fmt.Errorf("erro ao criar arquivo: %v", err)
-		}
-		defer destFile.Close()
-
-		// Abrir o arquivo do ZIP
-		zipFileReader, err := zipFile.Open()
-		if err != nil {
-			return fmt.Errorf("erro ao abrir arquivo do zip: %v", err)
-		}
-		defer zipFileReader.Close()
-
-		// Copiar o conteúdo do arquivo do ZIP para o arquivo local
-		_, err = io.Copy(destFile, zipFileReader)
-		if err != nil {
-			return fmt.Errorf("erro ao copiar conteúdo para o arquivo: %v", err)
-		}
-
-		fmt.Printf("Arquivo %s salvo em ./uploads/%s\n", fileName, fileName)
+func gerarTarefasProgramadas() {
+	fmt.Println("Pegando tarefas")
+	db, err := sql.Open("sqlite3", "./manager.db")
+	if err != nil {
+		log.Println("ERRO AO ADD TAREFA DB", err)
 	}
-	return nil
+	createTableSQL := `CREATE TABLE IF NOT EXISTS tarefas_agendadas (
+		clientId TEXT,
+		data_desejada TEXT,
+		infoObjects TEXT,
+		documento_padrao TEXT,
+		files TEXT
+	);`
+	_, err = db.Exec(createTableSQL)
+	if err != nil {
+		log.Fatal("Erro ao criar TABELA", err)
+	}
+	rows, err := db.Query("SELECT clientId, data_desejada,infoObjects,documento_padrao,files FROM tarefas_agendadas")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer rows.Close()
+
+	defer db.Close()
+	for rows.Next() {
+		var clientId string
+		var data_desejada string
+		var infoObjects string
+		var documento_padrao string
+		var files string
+		if err := rows.Scan(&clientId, &data_desejada, &infoObjects, &documento_padrao, &files); err != nil {
+			log.Fatal(err)
+		}
+		iniciarTarefaProgramada(clientId, data_desejada, infoObjects, documento_padrao, files)
+	}
+}
+func sendFilesProgramados(clientId string, infoObjects string, documento_padrao string, files string) {
+	url := "http://localhost:3000/sendFiles"
+	method := "POST"
+
+	payload := &bytes.Buffer{}
+	writer := multipart.NewWriter(payload)
+	_ = writer.WriteField("clientId", clientId)
+	_ = writer.WriteField("infoObjects", infoObjects)
+	if documento_padrao != "" {
+		documento_padrao_filePath := documento_padrao
+		file, errFile4 := os.Open(documento_padrao_filePath)
+		defer file.Close()
+		part4, errFile4 := writer.CreateFormFile("documento_padrao", filepath.Base(documento_padrao_filePath))
+		_, errFile4 = io.Copy(part4, file)
+		if errFile4 != nil {
+			fmt.Println("Erro:", errFile4)
+			return
+		}
+	}
+	if files != "" {
+		files_filePath := files
+		file, errFile4 := os.Open(files_filePath)
+		defer file.Close()
+		part4, errFile4 := writer.CreateFormFile("file", filepath.Base(files_filePath))
+		_, errFile4 = io.Copy(part4, file)
+		if errFile4 != nil {
+			fmt.Println("Erro:", errFile4)
+			return
+		}
+	}
+	err := writer.Close()
+	if err != nil {
+		fmt.Println("ERRO1", err)
+		return
+	}
+	client := &http.Client{}
+	req, err := http.NewRequest(method, url, payload)
+
+	if err != nil {
+		fmt.Println("erro Enviando sendFiles", err)
+		return
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	res, err := client.Do(req)
+	if err != nil {
+		fmt.Println("erro Enviando sendFiles1", err)
+
+		return
+	}
+	defer res.Body.Close()
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		fmt.Println("erro Enviando sendFiles2", err)
+
+		return
+	}
+	fmt.Println("RETORNO", string(body))
+}
+func iniciarTarefaProgramada(clientId string, dataDesejada string, infoObjects string, documento_padrao string, files string) {
+	dbDateStr := dataDesejada
+
+	// Converter a string considerando o fuso horário correto
+	layout := "2006-01-02 15:04:05"
+	loc, err := time.LoadLocation("America/Sao_Paulo")
+	if err != nil {
+		log.Fatal("Erro ao carregar fuso horário:", err)
+	}
+
+	// Parse na data considerando o fuso horário local
+	scheduledTime, err := time.ParseInLocation(layout, dbDateStr, loc)
+	if err != nil {
+		log.Fatal("Erro ao converter data:", err)
+	}
+
+	now := time.Now().In(loc) // Ambos no mesmo fuso horário
+
+	duration := scheduledTime.Sub(now) // Forma alternativa mais precisa
+	if duration <= 0 {
+		fmt.Println("----> O horário agendado já passou. <-----", duration, now, scheduledTime)
+		sendFilesProgramados(clientId, infoObjects, documento_padrao, files)
+		removerTarefaProgramadaDB(clientId, dataDesejada, documento_padrao, files)
+		return
+	}
+	fmt.Printf("Agendando disparo do cliente %s para as %s", clientId, dataDesejada)
+	// Agendar a execução da função após a duração calculada
+	time.AfterFunc(duration+1, func() {
+		sendFilesProgramados(clientId, infoObjects, documento_padrao, files)
+		removerTarefaProgramadaDB(clientId, dataDesejada, documento_padrao, files)
+	})
 }
 
+func removerTarefaProgramadaDB(clientId string, dataDesejada string, documento_padrao string, files string) {
+	if documento_padrao != "" {
+		os.Remove(documento_padrao)
+	}
+	if files != "" {
+		os.Remove(files)
+	}
+	newDB, err := sql.Open("sqlite3", "./manager.db")
+	if err != nil {
+		log.Println("ERRO AO ADD TAREFA DB", err)
+	}
+	createTableSQL := `CREATE TABLE IF NOT EXISTS tarefas_agendadas (
+		clientId TEXT,
+		data_desejada TEXT,
+		infoObjects TEXT,
+		documento_padrao TEXT,
+		files TEXT
+	);`
+	_, err = newDB.Exec(createTableSQL)
+	if err != nil {
+		log.Fatal("Erro ao criar TABELA", err)
+	}
+	defer newDB.Close()
+	// Usar a consulta parametrizada
+	query := "DELETE FROM tarefas_agendadas WHERE data_desejada = ? AND clientId = ?"
+	_, err = newDB.Exec(query, dataDesejada, clientId)
+	if err != nil {
+		log.Fatal("Erro ao executar a consulta:", err)
+	}
+}
+
+func addTarefaProgramadaDB(clientId string, dataDesejada string, infoObjects string, documento_padrao string, files string) {
+	newDB, err := sql.Open("sqlite3", "./manager.db")
+	if err != nil {
+		log.Println("ERRO AO ADD TAREFA DB", err)
+	}
+	createTableSQL := `CREATE TABLE IF NOT EXISTS tarefas_agendadas (
+		clientId TEXT,
+		data_desejada TEXT,
+		infoObjects TEXT,
+		documento_padrao TEXT,
+		files TEXT
+	);`
+	_, err = newDB.Exec(createTableSQL)
+	if err != nil {
+		log.Fatal("Erro ao criar TABELA", err)
+	}
+	defer newDB.Close()
+	// Usar a consulta parametrizada
+	query := "INSERT INTO `tarefas_agendadas` ( `clientId`, `data_desejada`, `infoObjects`,`documento_padrao`,`files`) VALUES ( ?, ?, ?,?,?);"
+	_, err = newDB.Exec(query, clientId, dataDesejada, infoObjects, documento_padrao, files)
+	if err != nil {
+		log.Fatal("Erro ao executar a consulta:", err)
+	}
+	iniciarTarefaProgramada(clientId, dataDesejada, infoObjects, documento_padrao, files)
+}
 func loadConfigInicial(dsn string) (map[string]string, map[string]string) {
 	// Conectar ao banco de dados
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer db.Close()
 
 	// Verificar se a conexão com o banco está ok
 	if err := db.Ping(); err != nil {
@@ -197,7 +351,7 @@ func getCSRFToken() string {
 	randomToken := fmt.Sprintf("%x", rand.Int63())
 	return randomToken
 }
-func sendToEndPoint(data any, clientId string, url string) {
+func sendToEndPoint(data any, url string) {
 
 	jsonData, err := json.Marshal(data)
 	if err != nil {
@@ -217,7 +371,6 @@ func sendToEndPoint(data any, clientId string, url string) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "jelly_fish_con_|7@625^4|7")
 	req.Header.Set("X-CSRFToken", getCSRFToken())
-
 	// Enviando a requisição com http.Client
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -226,7 +379,7 @@ func sendToEndPoint(data any, clientId string, url string) {
 	}
 	defer resp.Body.Close()
 	// Verificando o status da resposta
-	fmt.Println("Resposta Status:", resp.Status)
+	fmt.Println("Resposta Status:", resp)
 
 }
 func getText(message *waE2E.Message) string {
@@ -455,7 +608,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			if strings.Contains(baseURL, "disparo") {
 				baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
 			}
-			sendToEndPoint(data, clientId, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
+			sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
 		}
 	} else {
 		if media != "" || text != "" {
@@ -496,7 +649,9 @@ func autoConnection() {
 		cleanClientId := strings.Replace(fileName, ".db", "", -1)
 		fmt.Println(cleanClientId)
 		getClient(cleanClientId)
-
+		if clientMap[cleanClientId] == nil {
+			removeClientDB(cleanClientId, nil)
+		}
 	}
 }
 func tryConnecting(clientId string) bool {
@@ -547,14 +702,14 @@ func tryConnecting(clientId string) bool {
 	}
 }
 
-//	func removeClientDB(clientId string, container *sqlstore.Container) {
-//		container.Close()
-//		err := os.Remove("./clients_db/" + clientId + ".db")
-//		if err != nil {
-//			fmt.Println("---- Erro excluindo arquivo de sessão :", err)
-//		}
-//		return
-//	}
+func removeClientDB(clientId string, container *sqlstore.Container) {
+	container.Close()
+	err := os.Remove("./clients_db/" + clientId + ".db")
+	if err != nil {
+		fmt.Println("---- Erro excluindo arquivo de sessão :", err)
+	}
+	return
+}
 func getClient(clientId string) *whatsmeow.Client {
 	if clientMap[clientId] == nil {
 		tryConnecting(clientId)
@@ -589,6 +744,12 @@ func setStatus(client *whatsmeow.Client, status string, JID types.JID) {
 
 var stoppedQrCodeRequests = make(map[string]bool)
 
+func normalizeFileName(filename string) string {
+	normalizedFileName := filename
+	normalizedFileName = strings.ReplaceAll(normalizedFileName, " ", "_") // Substitui espaços por underline
+	normalizedFileName = strings.ReplaceAll(normalizedFileName, ":", "_")
+	return normalizedFileName
+}
 func main() {
 	autoConnection()
 	err := godotenv.Load()
@@ -682,19 +843,26 @@ func main() {
 		// 	"message": "Arquivo recebido e enviado no WhatsApp.",
 		// })
 		infoObjects := c.FormValue("infoObjects")
+		dataProgramada := c.FormValue("dataProgramada")
+		documento_padrao_filePath := ""
+		files_filePath := ""
 		var documento_padrao *multipart.FileHeader = nil
 		documento_padrao, err = c.FormFile("documento_padrao")
-
 		if err != nil {
 			fmt.Println("Nenhum arquivo enviado.")
 		}
 		if documento_padrao != nil {
 			savePath := "./uploads/" + clientId + documento_padrao.Filename
+			if dataProgramada != "" {
+				savePath = normalizeFileName("./arquivos_disparos_programados/padrao_" + dataProgramada + clientId + documento_padrao.Filename)
+				documento_padrao_filePath = savePath
+			}
 			// Salvar o arquivo no caminho especificado
 			if err := c.SaveFile(documento_padrao, savePath); err != nil {
 				fmt.Printf("Erro ao salvar o arquivo: %v", err)
 			} else {
 				fmt.Println("Arquivo salvo com sucesso!")
+
 			}
 		}
 		var files *multipart.FileHeader = nil
@@ -703,13 +871,29 @@ func main() {
 			fmt.Println("Nenhum arquivo enviado.")
 		}
 		var result []map[string]interface{}
-		fmt.Println(infoObjects)
 		// Deserializando o JSON para o map
 		err = json.Unmarshal([]byte(infoObjects), &result)
 		if err != nil {
 			fmt.Printf("Erro ao converter JSON: %v", err)
 		}
+		if dataProgramada != "" {
+			fmt.Println("Adicionar data")
+			if files != nil {
+				savePath := normalizeFileName("./arquivos_disparos_programados/zip_" + dataProgramada + clientId + files.Filename)
+				files_filePath = savePath
 
+				// Salvar o arquivo no caminho especificado
+				if err := c.SaveFile(files, savePath); err != nil {
+					fmt.Printf("Erro ao salvar o arquivo files para disparo Futuros: %v", err)
+				} else {
+					fmt.Println("Arquivo salvo com sucesso!")
+				}
+			}
+			addTarefaProgramadaDB(clientId, dataProgramada, infoObjects, documento_padrao_filePath, files_filePath)
+			return c.Status(200).JSON(fiber.Map{
+				"message": "Disparo agendado com sucesso",
+			})
+		}
 		// Exibindo o resultado
 		go func() {
 			var leitorZip *zip.Reader = nil
@@ -817,7 +1001,6 @@ func main() {
 							tempMessage := prepararMensagemArquivo(uniqueFileText, message, "./uploads/"+clientId+fileName, client, clientId)
 							if documento_padrao != nil {
 								client.SendMessage(context.Background(), JID, tempMessage)
-								fmt.Println("NOVAMENTE MENSAGEM", message)
 							} else {
 								message = tempMessage
 							}
@@ -870,7 +1053,6 @@ func main() {
 				if paymentMessage != nil {
 
 				}
-				fmt.Println("Mssg", message)
 				retornoEnvio, err := client.SendMessage(context.Background(), JID, message)
 				if err != nil {
 					fmt.Println("Erro ao enviar mensagem", err)
@@ -901,7 +1083,7 @@ func main() {
 					if strings.Contains(baseURL, "disparo") {
 						baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
 					}
-					sendToEndPoint(data, clientId, baseURL+"chatbot/chat/mensagens/novo-id/")
+					sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novo-id/")
 				}
 
 				var tempoEsperado int = randomBetween(30, 45)
@@ -973,7 +1155,7 @@ func main() {
 				lastIndex := strings.LastIndex(clientId, "_")
 				sufixo := clientId[lastIndex+1:]
 				baseURL := mapOficial[sufixo]
-				sendToEndPoint(data, clientId, baseURL)
+				sendToEndPoint(data, baseURL)
 			case *events.Disconnected:
 				fmt.Println("Cliente " + clientId + "desconectou do WhatsApp!")
 			case *events.LoggedOut:
@@ -1030,7 +1212,7 @@ func main() {
 							lastIndex := strings.LastIndex(clientId, "_")
 							sufixo := clientId[lastIndex+1:]
 							baseURL := mapOficial[sufixo]
-							sendToEndPoint(data, clientId, baseURL)
+							sendToEndPoint(data, baseURL)
 
 						} else {
 							data := map[string]any{
@@ -1041,7 +1223,7 @@ func main() {
 							lastIndex := strings.LastIndex(clientId, "_")
 							sufixo := clientId[lastIndex+1:]
 							baseURL := mapOficial[sufixo]
-							sendToEndPoint(data, clientId, baseURL)
+							sendToEndPoint(data, baseURL)
 						}
 						repeats[clientId] = repeats[clientId] + 1
 						if repeats[clientId] >= 5 {
@@ -1078,7 +1260,7 @@ func main() {
 				lastIndex := strings.LastIndex(clientId, "_")
 				sufixo := clientId[lastIndex+1:]
 				baseURL := mapOficial[sufixo]
-				sendToEndPoint(data, clientId, baseURL)
+				sendToEndPoint(data, baseURL)
 				return c.Status(200).JSON(fiber.Map{
 					"qrCode": dataURL,
 				})
@@ -1092,7 +1274,7 @@ func main() {
 				lastIndex := strings.LastIndex(clientId, "_")
 				sufixo := clientId[lastIndex+1:]
 				baseURL := mapOficial[sufixo]
-				sendToEndPoint(data, clientId, baseURL)
+				sendToEndPoint(data, baseURL)
 				return c.Status(200).JSON(fiber.Map{
 					"qrCode": firstQRCode.Code,
 				})
@@ -1110,9 +1292,14 @@ func main() {
 			})
 		}
 	})
-	fmt.Println("Rodando na porta " + PORT)
-	r.Listen(":" + PORT) // Escutando na porta 8080
+	r.Hooks().OnListen(func(listenData fiber.ListenData) error {
+		gerarTarefasProgramadas()
+		return nil
+	})
+	fmt.Println("⏳ Iniciando servidor...", PORT)
+	r.Listen(":" + PORT)
 }
+
 func desconctarCliente(clientId string, container *sqlstore.Container) bool {
 	fmt.Println("Desconectando " + clientId + " ...")
 	client := getClient(clientId)
@@ -1128,7 +1315,7 @@ func desconctarCliente(clientId string, container *sqlstore.Container) bool {
 	lastIndex := strings.LastIndex(clientId, "_")
 	sufixo := clientId[lastIndex+1:]
 	baseURL := mapOficial[sufixo]
-	sendToEndPoint(data, clientId, baseURL)
+	sendToEndPoint(data, baseURL)
 	return true
 }
 func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile string, client *whatsmeow.Client, clientId string) *waE2E.Message {
