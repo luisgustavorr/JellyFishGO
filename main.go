@@ -203,10 +203,15 @@ func sendToEndPoint(data any, clientId string, url string) {
 	if err != nil {
 		fmt.Printf("Erro ao criar marshal: %v", err)
 	}
+	if url == "" {
+		fmt.Printf("URL %s vazia", url)
+		return
+	}
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		fmt.Printf("Erro ao criar a requisição: %v", err)
 	}
+	fmt.Println("URL", url)
 
 	// Definindo os cabeçalhos
 	req.Header.Set("Content-Type", "application/json")
@@ -416,6 +421,10 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	}
 	var focus = getMessageFocus(focusedMessagesKeys, id_message)
 	if focus != "" {
+		if focus == "noreply" {
+			fmt.Println("Mensagem não deve ser enviada, focus 'noreply'")
+			return false
+		}
 		fmt.Println("MENSAGEM FOCADA", focus)
 		mensagem["focus"] = focus
 		focusedMessagesKeys = removeString(focusedMessagesKeys, focus+"_"+id_message)
@@ -577,6 +586,9 @@ func setStatus(client *whatsmeow.Client, status string, JID types.JID) {
 	}
 
 }
+
+var stoppedQrCodeRequests = make(map[string]bool)
+
 func main() {
 	autoConnection()
 	err := godotenv.Load()
@@ -594,6 +606,13 @@ func main() {
 
 	r.Use(requestLogger)
 	// r.LoadHTMLGlob("templates/*.html")
+	r.Post("/stopRequest", func(c *fiber.Ctx) error {
+		clientId := c.FormValue("clientId")
+		stoppedQrCodeRequests[clientId] = true
+		return c.Status(200).JSON(fiber.Map{
+			"message": "Cliente Pausado",
+		})
+	})
 	r.Post("/verifyConnection", func(c *fiber.Ctx) error {
 		clientId := c.FormValue("clientId")
 		client := getClient(clientId)
@@ -983,6 +1002,11 @@ func main() {
 			go func() {
 				repeats[clientId] = 1
 				for evt := range qrChan {
+					if stoppedQrCodeRequests[clientId] {
+						repeats[clientId] = 5
+						fmt.Printf("Cliente %s pausado", clientId)
+						return
+					}
 					if evt.Event == "code" {
 						// Gerar o QR Code como imagem PNG
 						fmt.Println("GERANDO QRCODE --------")
