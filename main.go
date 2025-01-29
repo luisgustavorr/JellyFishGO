@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"mime/multipart"
 
@@ -516,6 +517,9 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	var text string = getText(message)
 	var fromMe = fullInfoMessage.Info.IsFromMe
 	var senderNumber string = getSender(fullInfoMessage.Info.Sender.User)
+	if utf8.RuneCountInString(senderNumber) > 13 {
+		fmt.Println("------> Sender Number Grande Demais <------")
+	}
 	var id_message string = fullInfoMessage.Info.ID
 	var datetime string = fullInfoMessage.Info.Timestamp.String()
 	var editedInfo = message.GetProtocolMessage().GetKey().GetId()
@@ -617,7 +621,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			}
 			messagesToSend[clientId] = append(messagesToSend[clientId], message)
 			messagesQueue.AddMessage(clientId, objetoMensagens, senderNumber)
-			fmt.Println("<- Mensagem RECEBIDA:", id_message, senderName, senderNumber, text)
+			fmt.Println("<- Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text)
 			var MessageID []types.MessageID = []types.MessageID{id_message}
 			client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
 		}
