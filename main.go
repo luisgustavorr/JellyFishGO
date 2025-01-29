@@ -519,6 +519,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	var senderNumber string = getSender(fullInfoMessage.Info.Sender.User)
 	if utf8.RuneCountInString(senderNumber) > 13 {
 		fmt.Println("------> Sender Number Grande Demais <------")
+		return false
 	}
 	var id_message string = fullInfoMessage.Info.ID
 	var datetime string = fullInfoMessage.Info.Timestamp.String()
