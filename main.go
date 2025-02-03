@@ -226,7 +226,9 @@ func iniciarTarefaProgramada(clientId string, dataDesejada string, infoObjects s
 	// Parse na data considerando o fuso horário local
 	scheduledTime, err := time.ParseInLocation(layout, dbDateStr, loc)
 	if err != nil {
-		log.Fatal("Erro ao converter data:", err)
+		log.Println("Erro ao converter data:", err)
+		removerTarefaProgramadaDB(clientId, dataDesejada, documento_padrao, files)
+		return
 	}
 
 	now := time.Now().In(loc) // Ambos no mesmo fuso horário
@@ -266,14 +268,14 @@ func removerTarefaProgramadaDB(clientId string, dataDesejada string, documento_p
 	);`
 	_, err = newDB.Exec(createTableSQL)
 	if err != nil {
-		log.Fatal("Erro ao criar TABELA", err)
+		log.Println("Erro ao criar TABELA", err)
 	}
 	defer newDB.Close()
 	// Usar a consulta parametrizada
 	query := "DELETE FROM tarefas_agendadas WHERE data_desejada = ? AND clientId = ?"
 	_, err = newDB.Exec(query, dataDesejada, clientId)
 	if err != nil {
-		log.Fatal("Erro ao executar a consulta:", err)
+		log.Println("Erro ao executar a consulta:", err)
 	}
 }
 
@@ -291,14 +293,14 @@ func addTarefaProgramadaDB(clientId string, dataDesejada string, infoObjects str
 	);`
 	_, err = newDB.Exec(createTableSQL)
 	if err != nil {
-		log.Fatal("Erro ao criar TABELA", err)
+		log.Println("Erro ao criar TABELA", err)
 	}
 	defer newDB.Close()
 	// Usar a consulta parametrizada
 	query := "INSERT INTO `tarefas_agendadas` ( `clientId`, `data_desejada`, `infoObjects`,`documento_padrao`,`files`) VALUES ( ?, ?, ?,?,?);"
 	_, err = newDB.Exec(query, clientId, dataDesejada, infoObjects, documento_padrao, files)
 	if err != nil {
-		log.Fatal("Erro ao executar a consulta:", err)
+		log.Println("Erro ao executar a consulta:", err)
 	}
 	iniciarTarefaProgramada(clientId, dataDesejada, infoObjects, documento_padrao, files)
 }
@@ -306,18 +308,18 @@ func loadConfigInicial(dsn string) (map[string]string, map[string]string) {
 	// Conectar ao banco de dados
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
 	}
 
 	// Verificar se a conexão com o banco está ok
 	if err := db.Ping(); err != nil {
-		log.Fatal(err)
+		log.Println(err)
 	}
 
 	// Executar uma consulta simples
 	rows, err := db.Query("SELECT sufixo, link_oficial,base_link_teste,link_teste FROM clientes")
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
 	}
 	defer rows.Close()
 	mapProducao := map[string]string{}
@@ -328,7 +330,7 @@ func loadConfigInicial(dsn string) (map[string]string, map[string]string) {
 		var base_link_teste string
 		var link_teste string
 		if err := rows.Scan(&sufixo, &link_oficial, &base_link_teste, &link_teste); err != nil {
-			log.Fatal(err)
+			log.Println(err)
 		}
 		mapProducao[sufixo] = link_oficial
 		mapDesenvolvimento[sufixo] = base_link_teste + link_teste
@@ -849,6 +851,17 @@ func main() {
 		// })
 		infoObjects := c.FormValue("infoObjects")
 		dataProgramada := c.FormValue("dataProgramada")
+		if dataProgramada != "" {
+			layout := "2006-01-02 15:04:05"
+			t, err := time.Parse(layout, dataProgramada)
+			if err != nil {
+				fmt.Println("Erro ao converter data:", err)
+				return c.Status(500).JSON(fiber.Map{
+					"message": "Data Inválida",
+				})
+			}
+			fmt.Println(t, " Válida")
+		}
 		documento_padrao_filePath := ""
 		files_filePath := ""
 		var documento_padrao *multipart.FileHeader = nil
@@ -859,6 +872,7 @@ func main() {
 		if documento_padrao != nil {
 			savePath := "./uploads/" + clientId + documento_padrao.Filename
 			if dataProgramada != "" {
+
 				savePath = normalizeFileName("./arquivos_disparos_programados/padrao_" + dataProgramada + clientId + documento_padrao.Filename)
 				documento_padrao_filePath = savePath
 			}
@@ -882,6 +896,7 @@ func main() {
 			fmt.Printf("Erro ao converter JSON: %v", err)
 		}
 		if dataProgramada != "" {
+
 			fmt.Println("Adicionar data")
 			if files != nil {
 				savePath := normalizeFileName("./arquivos_disparos_programados/zip_" + dataProgramada + clientId + files.Filename)
@@ -894,13 +909,17 @@ func main() {
 					fmt.Println("Arquivo salvo com sucesso!")
 				}
 			}
+
 			addTarefaProgramadaDB(clientId, dataProgramada, infoObjects, documento_padrao_filePath, files_filePath)
+
 			return c.Status(200).JSON(fiber.Map{
 				"message": "Disparo agendado com sucesso",
 			})
 		}
 		// Exibindo o resultado
-		go func() {
+		clientIdCopy := clientId
+		fmt.Println("Antes do loop:", clientIdCopy)
+		go func(clientId string) {
 			var leitorZip *zip.Reader = nil
 			if files != nil {
 				zipFile, err := files.Open()
@@ -916,6 +935,7 @@ func main() {
 				leitorZip = zipReader
 			}
 			for _, item := range result {
+				fmt.Println("Dentro do loop:", clientId)
 				fmt.Println(item["number"]) // Exibe cada item do JSON como um map[string]interface{}
 				number := "+" + item["number"].(string)
 				idImage, ok := item["id_image"].(string)
@@ -931,7 +951,6 @@ func main() {
 				if !ok {
 					log.Println("quotedMessage não é um mapa.")
 				}
-				fmt.Println(item["paymentMessage"])
 				paymentMessage, ok := item["paymentMessage"].(map[string]interface{})
 				if !ok {
 					log.Println("paymentMessage não é um mapa.")
@@ -947,7 +966,6 @@ func main() {
 					// Defina o valor padrão ou apenas ignore a chave
 					idMensagem = "" // ou outro valor padrão
 				}
-				fmt.Println("editedIDMessage", editedIDMessage)
 				text := item["text"].(string)
 				numbers := []string{number}
 				validNumber, err := client.IsOnWhatsApp(numbers)
@@ -1035,7 +1053,6 @@ func main() {
 					}
 					response := validNumber[0]
 					senderJID := response.JID
-					fmt.Println("JID da mensagem", messageID, senderJID, JID)
 
 					var msg_quote *waE2E.Message = &waE2E.Message{
 						ExtendedTextMessage: &waE2E.ExtendedTextMessage{
@@ -1098,6 +1115,7 @@ func main() {
 				}
 			}
 			defer func() {
+				fmt.Println("Depois do loop:", clientId)
 				if documento_padrao != nil {
 					err = os.Remove("./uploads/" + clientId + documento_padrao.Filename)
 					if err != nil {
@@ -1106,7 +1124,7 @@ func main() {
 				}
 			}()
 
-		}()
+		}(clientIdCopy)
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Arquivo recebido e enviado no WhatsApp.",
 		})
@@ -1119,7 +1137,6 @@ func main() {
 			store.DeviceProps = &waCompanionReg.DeviceProps{Os: proto.String("Shark Business(ChatBot)")}
 		} else if strings.Contains(clientId, "_shark") {
 			store.DeviceProps = &waCompanionReg.DeviceProps{Os: proto.String("Shark Business")}
-
 		}
 		if clientMap[clientId] != nil {
 			return c.Status(200).JSON(fiber.Map{
@@ -1186,7 +1203,8 @@ func main() {
 			// Aqui, aguardamos pelo QR Code gerado
 			var evento string = "QRCODE_ATUALIZADO"
 
-			go func() {
+			clientIdCopy := clientId
+			go func(clientId string) {
 				repeats[clientId] = 1
 				for evt := range qrChan {
 					if stoppedQrCodeRequests[clientId] {
@@ -1244,7 +1262,7 @@ func main() {
 						return
 					}
 				}
-			}()
+			}(clientIdCopy)
 
 			firstQRCode := <-qrChan
 			if qrCode {
@@ -1348,7 +1366,6 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 	if strings.Contains(nomeArquivo, ".mp3") {
 		mimeType = "audio/mpeg"
 	}
-	fmt.Println("mimeType ", mimeType)
 
 	// Resetando o ponteiro do arquivo
 	file.Seek(0, 0)
