@@ -354,7 +354,7 @@ func getCSRFToken() string {
 	randomToken := fmt.Sprintf("%x", rand.Int63())
 	return randomToken
 }
-func sendToEndPoint(data any, url string) {
+func sendToEndPoint(data map[string]any, url string) {
 
 	jsonData, err := json.Marshal(data)
 	if err != nil {
@@ -368,8 +368,6 @@ func sendToEndPoint(data any, url string) {
 	if err != nil {
 		fmt.Printf("Erro ao criar a requisição: %v", err)
 	}
-	fmt.Println("URL", url)
-
 	// Definindo os cabeçalhos
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "jelly_fish_con_|7@625^4|7")
@@ -382,7 +380,7 @@ func sendToEndPoint(data any, url string) {
 	}
 	defer resp.Body.Close()
 	// Verificando o status da resposta
-	fmt.Println("Resposta Status:", resp.Status)
+	fmt.Println("Resposta Status: [", resp.Status, "] | evento : ", data["evento"], " | clientId :", data["clientId"])
 
 }
 func getText(message *waE2E.Message) string {
@@ -503,6 +501,7 @@ func removeString(slice []string, value string) []string {
 	return filtered
 }
 func handleMessage(fullInfoMessage *events.Message, clientId string, client *whatsmeow.Client) bool {
+	log.Printf("------------------ %s Receiving Message ------------------------ \n\n", clientId)
 	var groupMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "@g.us")
 	var channel bool = fullInfoMessage.SourceWebMsg.GetBroadcast()
 	var statusMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "status")
@@ -549,10 +548,8 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		senderNumber = fullInfoMessage.Info.Chat.User
 	}
 	params := &whatsmeow.GetProfilePictureParams{}
-	profilePic, err := client.GetProfilePictureInfo(JID, params)
-	if err != nil {
-		fmt.Println("sem perfil")
-	}
+	profilePic, _ := client.GetProfilePictureInfo(JID, params)
+
 	if editedInfo != "" {
 		edited = 1
 		id_message = editedInfo
@@ -839,6 +836,8 @@ func main() {
 	})
 	r.Post("/sendFiles", func(c *fiber.Ctx) error {
 		clientId := c.FormValue("clientId")
+		log.Printf("------------------ %s Send Files Request ------------------------ \n\n", clientId)
+
 		client := getClient(clientId)
 		if client == nil {
 			return c.Status(500).JSON(fiber.Map{
@@ -855,19 +854,19 @@ func main() {
 			layout := "2006-01-02 15:04:05"
 			t, err := time.Parse(layout, dataProgramada)
 			if err != nil {
-				fmt.Println("Erro ao converter data:", err)
+				fmt.Println("Erro ao converter data:", t, err)
 				return c.Status(500).JSON(fiber.Map{
 					"message": "Data Inválida",
 				})
 			}
-			fmt.Println(t, " Válida")
+
 		}
 		documento_padrao_filePath := ""
 		files_filePath := ""
 		var documento_padrao *multipart.FileHeader = nil
 		documento_padrao, err = c.FormFile("documento_padrao")
 		if err != nil {
-			fmt.Println("Nenhum arquivo enviado.")
+			fmt.Println("Nenhum documento padrão enviado.")
 		}
 		if documento_padrao != nil {
 			savePath := "./uploads/" + clientId + documento_padrao.Filename
@@ -879,15 +878,11 @@ func main() {
 			// Salvar o arquivo no caminho especificado
 			if err := c.SaveFile(documento_padrao, savePath); err != nil {
 				fmt.Printf("Erro ao salvar o arquivo: %v", err)
-			} else {
-				fmt.Println("Arquivo salvo com sucesso!")
-
 			}
 		}
 		var files *multipart.FileHeader = nil
 		files, err = c.FormFile("file")
 		if err != nil {
-			fmt.Println("Nenhum arquivo enviado.")
 		}
 		var result []map[string]interface{}
 		// Deserializando o JSON para o map
@@ -897,7 +892,6 @@ func main() {
 		}
 		if dataProgramada != "" {
 
-			fmt.Println("Adicionar data")
 			if files != nil {
 				savePath := normalizeFileName("./arquivos_disparos_programados/zip_" + dataProgramada + clientId + files.Filename)
 				files_filePath = savePath
@@ -905,8 +899,6 @@ func main() {
 				// Salvar o arquivo no caminho especificado
 				if err := c.SaveFile(files, savePath); err != nil {
 					fmt.Printf("Erro ao salvar o arquivo files para disparo Futuros: %v", err)
-				} else {
-					fmt.Println("Arquivo salvo com sucesso!")
 				}
 			}
 
@@ -918,8 +910,9 @@ func main() {
 		}
 		// Exibindo o resultado
 		clientIdCopy := clientId
-		fmt.Println("Antes do loop:", clientIdCopy)
 		go func(clientId string) {
+			log.Printf("------------------ %s Inside Go Func------------------------ \n\n", clientId)
+
 			var leitorZip *zip.Reader = nil
 			if files != nil {
 				zipFile, err := files.Open()
@@ -935,8 +928,6 @@ func main() {
 				leitorZip = zipReader
 			}
 			for _, item := range result {
-				fmt.Println("Dentro do loop:", clientId)
-				fmt.Println(item["number"]) // Exibe cada item do JSON como um map[string]interface{}
 				number := "+" + item["number"].(string)
 				idImage, ok := item["id_image"].(string)
 				if !ok {
@@ -945,15 +936,12 @@ func main() {
 				}
 				focus, ok := item["focus"].(string)
 				if !ok {
-					log.Println("Erro ao obter focus")
 				}
 				quotedMessage, ok := item["quotedMessage"].(map[string]interface{})
 				if !ok {
-					log.Println("quotedMessage não é um mapa.")
 				}
 				paymentMessage, ok := item["paymentMessage"].(map[string]interface{})
 				if !ok {
-					log.Println("paymentMessage não é um mapa.")
 				}
 
 				editedIDMessage, ok := item["editedIDMessage"].(string)
@@ -973,7 +961,6 @@ func main() {
 					fmt.Println(err, "ERRO ISONWHATSAPP")
 				}
 				if len(validNumber) == 0 {
-					fmt.Println("Nenhum número está no WhatsApp.")
 					continue
 				}
 
@@ -985,7 +972,6 @@ func main() {
 				// VerifiedName := response.VerifiedName
 
 				if !IsIn {
-					fmt.Println("NUMERO INVALIDO")
 					continue
 				}
 				setStatus(client, "digitando", JID)
@@ -993,9 +979,7 @@ func main() {
 				message := &waE2E.Message{Conversation: &text}
 				if leitorZip != nil {
 					for _, arquivo := range leitorZip.File {
-						fmt.Println(arquivo, idImage)
 						if strings.Contains(arquivo.Name, "documento_"+idImage) {
-							fmt.Println("Arquivos encontrados no ZIP:", leitorZip.File)
 
 							// Criar um arquivo local para salvar
 							fileName := strings.Replace(arquivo.Name, "documento_"+idImage+"_", "", -1)
@@ -1115,7 +1099,6 @@ func main() {
 				}
 			}
 			defer func() {
-				fmt.Println("Depois do loop:", clientId)
 				if documento_padrao != nil {
 					err = os.Remove("./uploads/" + clientId + documento_padrao.Filename)
 					if err != nil {
@@ -1204,7 +1187,9 @@ func main() {
 			var evento string = "QRCODE_ATUALIZADO"
 
 			clientIdCopy := clientId
+
 			go func(clientId string) {
+
 				repeats[clientId] = 1
 				for evt := range qrChan {
 					if stoppedQrCodeRequests[clientId] {
