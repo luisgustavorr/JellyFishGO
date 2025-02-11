@@ -848,7 +848,10 @@ func main() {
 		// c.Status(200).JSON(fiber.Map{
 		// 	"message": "Arquivo recebido e enviado no WhatsApp.",
 		// })
+		noTimeout := c.FormValue("noTimeout")
+
 		infoObjects := c.FormValue("infoObjects")
+		fmt.Println(infoObjects)
 		dataProgramada := c.FormValue("dataProgramada")
 		if dataProgramada != "" {
 			layout := "2006-01-02 15:04:05"
@@ -859,7 +862,6 @@ func main() {
 					"message": "Data Inválida",
 				})
 			}
-
 		}
 		documento_padrao_filePath := ""
 		files_filePath := ""
@@ -895,7 +897,6 @@ func main() {
 			if files != nil {
 				savePath := normalizeFileName("./arquivos_disparos_programados/zip_" + dataProgramada + clientId + files.Filename)
 				files_filePath = savePath
-
 				// Salvar o arquivo no caminho especificado
 				if err := c.SaveFile(files, savePath); err != nil {
 					fmt.Printf("Erro ao salvar o arquivo files para disparo Futuros: %v", err)
@@ -929,9 +930,13 @@ func main() {
 			}
 			for _, item := range result {
 				number := "+" + item["number"].(string)
-				idImage, ok := item["id_image"].(string)
-				if !ok {
-					log.Println("Erro ao obter id_image")
+				var idImage string
+				switch v := item["id_image"].(type) {
+				case string:
+					idImage = v
+				case int, int64, float64:
+					idImage = fmt.Sprintf("%v", v) // Converte para string
+				default:
 					idImage = "UNDEFINED"
 				}
 				focus, ok := item["focus"].(string)
@@ -979,6 +984,7 @@ func main() {
 				message := &waE2E.Message{Conversation: &text}
 				if leitorZip != nil {
 					for _, arquivo := range leitorZip.File {
+						fmt.Println("Nome do arquivo", arquivo.Name, "procurando por:", "documento_"+idImage)
 						if strings.Contains(arquivo.Name, "documento_"+idImage) {
 
 							// Criar um arquivo local para salvar
@@ -1093,7 +1099,7 @@ func main() {
 				}
 
 				var tempoEsperado int = randomBetween(30, 45)
-				if len(result) > 1 {
+				if len(result) > 1 && noTimeout == "" {
 					fmt.Println("Tempo esperado para enviar a próxima mensagem:", tempoEsperado, "segundos...")
 					time.Sleep(time.Duration(tempoEsperado) * time.Second)
 				}
