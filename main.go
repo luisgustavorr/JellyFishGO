@@ -11,9 +11,12 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/smtp"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -506,6 +509,8 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	var channel bool = fullInfoMessage.SourceWebMsg.GetBroadcast()
 	var statusMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "status")
 	var contactMessage bool = fullInfoMessage.Message.GetContactMessage() != nil
+	fmt.Println("Mensagem recebida : ", fullInfoMessage)
+
 	var LocationMessage bool = fullInfoMessage.Message.LocationMessage != nil
 	var pollMessage bool = fullInfoMessage.Message.GetPollUpdateMessage() != nil || fullInfoMessage.Message.GetPollCreationMessage() != nil || fullInfoMessage.Message.GetPollCreationMessageV2() != nil || fullInfoMessage.Message.GetPollCreationMessageV3() != nil || fullInfoMessage.Message.GetPollCreationMessageV4() != nil || fullInfoMessage.Message.GetPollCreationMessageV5() != nil
 	if groupMessage || statusMessage || pollMessage || contactMessage || LocationMessage || channel {
@@ -653,7 +658,9 @@ func autoConnection() {
 		cleanClientId := strings.Replace(fileName, ".db", "", -1)
 		fmt.Println(cleanClientId)
 		getClient(cleanClientId)
+
 		if clientMap[cleanClientId] == nil {
+			sendEmailDisconnection(cleanClientId)
 			removeClientDB(cleanClientId, nil)
 		}
 	}
@@ -681,7 +688,7 @@ func tryConnecting(clientId string) bool {
 			fmt.Println("Cliente " + clientId + "desconectou do WhatsApp!")
 		case *events.LoggedOut:
 
-			desconctarCliente(clientId, container)
+			desconctarCliente(clientId)
 			fmt.Println("Cliente " + clientId + " deslogou do WhatsApp!")
 		case *events.Message:
 			if strings.Contains(clientId, "chat") {
@@ -707,7 +714,9 @@ func tryConnecting(clientId string) bool {
 }
 
 func removeClientDB(clientId string, container *sqlstore.Container) {
-	container.Close()
+	if container != nil {
+		container.Close()
+	}
 	err := os.Remove("./clients_db/" + clientId + ".db")
 	if err != nil {
 		fmt.Println("---- Erro excluindo arquivo de sessão :", err)
@@ -821,11 +830,12 @@ func main() {
 	})
 	r.Post("/destroySession", func(c *fiber.Ctx) error {
 		clientId := c.FormValue("clientId")
-		client := getClient(clientId)
-		client.Logout()
-		clientMap[clientId] = nil
-		tryConnecting(clientId)
-		fmt.Println("Desconectando")
+		desconctarCliente(clientId)
+		// client := getClient(clientId)
+		// client.Logout()
+		// clientMap[clientId] = nil
+		// tryConnecting(clientId)
+		// fmt.Println("Desconectando")
 
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Cliente desconectado",
@@ -849,9 +859,10 @@ func main() {
 		// 	"message": "Arquivo recebido e enviado no WhatsApp.",
 		// })
 		noTimeout := c.FormValue("noTimeout")
+		sendContact := c.FormValue("contact")
 
 		infoObjects := c.FormValue("infoObjects")
-		fmt.Println(infoObjects)
+
 		dataProgramada := c.FormValue("dataProgramada")
 		if dataProgramada != "" {
 			layout := "2006-01-02 15:04:05"
@@ -915,6 +926,7 @@ func main() {
 			log.Printf("------------------ %s Inside Go Func------------------------ \n\n", clientId)
 
 			var leitorZip *zip.Reader = nil
+
 			if files != nil {
 				zipFile, err := files.Open()
 				if err != nil {
@@ -982,6 +994,42 @@ func main() {
 				setStatus(client, "digitando", JID)
 
 				message := &waE2E.Message{Conversation: &text}
+				if sendContact != "" {
+					var sendContactMap map[string]string
+
+					// Deserializando o JSON corretamente para o map
+					err = json.Unmarshal([]byte(sendContact), &sendContactMap)
+					if err != nil {
+						fmt.Println("Erro ao desserializar JSON:", err)
+						return
+					}
+
+					if err == nil {
+						validNumber, err := client.IsOnWhatsApp([]string{sendContactMap["contato"]})
+						if err != nil {
+							fmt.Println(err, "ERRO IS ONWHATSAPP")
+						}
+						response := validNumber[0]
+						cell := response.JID.User
+						formatedNumber := formatPhoneNumber(cell)
+						if formatedNumber != "" {
+							contactMessage := &waE2E.Message{
+								ContactMessage: &waE2E.ContactMessage{
+									DisplayName: proto.String(sendContactMap["nome"]),
+									Vcard:       proto.String("BEGIN:VCARD\nVERSION:3.0\nN:;" + sendContactMap["nome"] + ";;;\nFN:" + sendContactMap["nome"] + "\nitem1.TEL;waid=" + cell + ":" + formatedNumber + "\nitem1.X-ABLabel:Celular\nEND:VCARD"),
+								}}
+							fmt.Println("BEGIN:VCARD\nVERSION:3.0\nN:;" + sendContactMap["nome"] + ";;;\nFN:" + sendContactMap["nome"] + "\nitem1.TEL;waid=" + cell + ":" + formatedNumber + "\nitem1.X-ABLabel:Celular\nEND:VCARD")
+							client.SendMessage(context.Background(), JID, contactMessage)
+						} else {
+							fmt.Println("FORMATADO ->", err)
+
+						}
+
+					}
+				}
+				if text == "" {
+					return
+				}
 				if leitorZip != nil {
 					for _, arquivo := range leitorZip.File {
 						fmt.Println("Nome do arquivo", arquivo.Name, "procurando por:", "documento_"+idImage)
@@ -1118,8 +1166,10 @@ func main() {
 			"message": "Arquivo recebido e enviado no WhatsApp.",
 		})
 	})
+
 	r.Post("/getQRCode", func(c *fiber.Ctx) error {
 		// Recupera o corpo da requisição e faz a bind para a estrutura de dados
+		sendEmail := c.FormValue("notifyEmail")
 		clientId := c.FormValue("clientId")
 		fmt.Printf("Gerando QR Code para o cliente '%s'\n", clientId)
 		if strings.Contains(clientId, "_chat") {
@@ -1166,12 +1216,15 @@ func main() {
 				lastIndex := strings.LastIndex(clientId, "_")
 				sufixo := clientId[lastIndex+1:]
 				baseURL := mapOficial[sufixo]
+				if sendEmail != "" {
+					getOrSetEmails("INSERT INTO emails_conexoes ( `clientId`, `email`) VALUES (?,?);", []any{clientId, "luisgustavo20061@gmail.com"})
+				}
 				sendToEndPoint(data, baseURL)
 			case *events.Disconnected:
 				fmt.Println("Cliente " + clientId + "desconectou do WhatsApp!")
 			case *events.LoggedOut:
 				clientMap[clientId] = nil
-				desconctarCliente(clientId, container)
+				desconctarCliente(clientId)
 
 				fmt.Println("Cliente " + clientId + " deslogou do WhatsApp!")
 			case *events.Message:
@@ -1243,7 +1296,7 @@ func main() {
 						if repeats[clientId] >= 5 {
 							// desconectar
 							fmt.Println("Tentativas de login excedidas")
-							desconctarCliente(clientId, container)
+							desconctarCliente(clientId)
 							return
 						}
 						fmt.Printf("Tentativa %d de 5 do cliente %s\n", repeats[clientId], clientId)
@@ -1313,9 +1366,76 @@ func main() {
 	fmt.Println("⏳ Iniciando servidor...", PORT)
 	r.Listen(":" + PORT)
 }
+func getOrSetEmails(query string, args []any) *sql.Rows {
+	db, err := sql.Open("sqlite3", "./manager.db")
+	if err != nil {
+		log.Println("ERRO AO ADD TAREFA DB", err)
+	}
+	createTableSQL := `CREATE TABLE IF NOT EXISTS emails_conexoes (
+		clientId TEXT,
+		email TEXT
+	);`
+	_, err = db.Exec(createTableSQL)
+	if err != nil {
+		log.Fatal("Erro ao criar TABELA", err)
+	}
+	if strings.Contains(query, "INSERT") {
+		db.Exec(query, args...)
+		rows := &sql.Rows{}
+		return rows
+	}
+	rows, err := db.Query(query, args...)
+	// for rows.Next() {
+	// 	var clientId string
+	// 	var email string
+	// 	if err := rows.Scan(&clientId, &email); err != nil {
+	// 		log.Fatal(err)
+	// 	}
+	// 	fmt.Println("AAAA ->", email, clientId)
+	// }
 
-func desconctarCliente(clientId string, container *sqlstore.Container) bool {
+	defer db.Close()
+
+	return rows
+}
+func sendToEmail(target string, text string) {
+	fmt.Println("Enviando email de desconexão para", target)
+	from := "oisharkbusiness@gmail.com"
+	pass := "ucjj iway qetc ftvv "
+	to := target
+
+	msg := "From: " + from + "\n" +
+		"To: " + to + "\n" +
+		"Subject: Conexão Perdida !\n\n" +
+		text
+
+	err := smtp.SendMail("smtp.gmail.com:587",
+		smtp.PlainAuth("", from, pass, "smtp.gmail.com"),
+		from, []string{to}, []byte(msg))
+
+	if err != nil {
+		log.Printf("smtp error: %s", err)
+		return
+	}
+
+	log.Print("sent, visit http://foobarbazz.mailinator.com")
+}
+func sendEmailDisconnection(clientId string) {
+	rows := getOrSetEmails("SELECT * FROM emails_conexoes WHERE clientId = ?", []any{clientId})
+	fmt.Println()
+	defer rows.Close()
+	for rows.Next() {
+		var clientId string
+		var email string
+		if err := rows.Scan(&clientId, &email); err != nil {
+			log.Fatal(err)
+		}
+		sendToEmail(email, "Sua conexão no whatsapp foi perdida, acesse o Shark Business e verifique ")
+	}
+}
+func desconctarCliente(clientId string) bool {
 	fmt.Println("Desconectando " + clientId + " ...")
+	sendEmailDisconnection(clientId)
 	client := getClient(clientId)
 	if client != nil {
 		clientMap[clientId] = nil
@@ -1470,4 +1590,26 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		mensagem_.DocumentMessage = documentMsg
 	}
 	return &mensagem_
+}
+func formatPhoneNumber(phone string) string {
+	// Remove caracteres não numéricos
+	re := regexp.MustCompile(`\D`)
+	phone = re.ReplaceAllString(phone, "")
+
+	// Verifica se o número tem o código do país correto
+	if len(phone) < 12 || len(phone) > 13 {
+		return "Número inválido"
+	}
+
+	// Adiciona o "+"
+	formatted := "+" + phone[:2] + " " + phone[2:4] + " "
+
+	// Verifica se é um número de celular (tem o nono dígito)
+	if len(phone) == 13 {
+		formatted += phone[4:5] + " " + phone[5:9] + "-" + phone[9:]
+	} else {
+		formatted += phone[4:8] + "-" + phone[8:]
+	}
+
+	return formatted
 }
