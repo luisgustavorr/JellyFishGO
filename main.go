@@ -509,7 +509,6 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	var channel bool = fullInfoMessage.SourceWebMsg.GetBroadcast()
 	var statusMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "status")
 	var contactMessage bool = fullInfoMessage.Message.GetContactMessage() != nil
-	fmt.Println("Mensagem recebida : ", fullInfoMessage)
 
 	var LocationMessage bool = fullInfoMessage.Message.LocationMessage != nil
 	var pollMessage bool = fullInfoMessage.Message.GetPollUpdateMessage() != nil || fullInfoMessage.Message.GetPollCreationMessage() != nil || fullInfoMessage.Message.GetPollCreationMessageV2() != nil || fullInfoMessage.Message.GetPollCreationMessageV3() != nil || fullInfoMessage.Message.GetPollCreationMessageV4() != nil || fullInfoMessage.Message.GetPollCreationMessageV5() != nil
