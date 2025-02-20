@@ -45,7 +45,7 @@ import (
 )
 
 var clientMap = make(map[string]*whatsmeow.Client)
-var mapOficial, mapDesenvolvimento = loadConfigInicial("spacemid_luis:G4l01313@tcp(pro107.dnspro.com.br:3306)/spacemid_sistem_adm")
+var mapOficial, _ = loadConfigInicial("spacemid_luis:G4l01313@tcp(pro107.dnspro.com.br:3306)/spacemid_sistem_adm")
 var messagesToSend = make(map[string][]*waE2E.Message)
 var focusedMessagesKeys = []string{}
 
@@ -108,7 +108,6 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 	if strings.Contains(baseURL, "disparo") {
 		baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
 	}
-	fmt.Println(messages)
 	data := map[string]any{
 		"evento":   "MENSAGEM_RECEBIDA",
 		"sender":   2,
@@ -169,10 +168,10 @@ func sendFilesProgramados(clientId string, infoObjects string, documento_padrao 
 	_ = writer.WriteField("infoObjects", infoObjects)
 	if documento_padrao != "" {
 		documento_padrao_filePath := documento_padrao
-		file, errFile4 := os.Open(documento_padrao_filePath)
+		file, _ := os.Open(documento_padrao_filePath)
 		defer file.Close()
-		part4, errFile4 := writer.CreateFormFile("documento_padrao", filepath.Base(documento_padrao_filePath))
-		_, errFile4 = io.Copy(part4, file)
+		part4, _ := writer.CreateFormFile("documento_padrao", filepath.Base(documento_padrao_filePath))
+		_, errFile4 := io.Copy(part4, file)
 		if errFile4 != nil {
 			fmt.Println("Erro:", errFile4)
 			return
@@ -180,10 +179,10 @@ func sendFilesProgramados(clientId string, infoObjects string, documento_padrao 
 	}
 	if files != "" {
 		files_filePath := files
-		file, errFile4 := os.Open(files_filePath)
+		file, _ := os.Open(files_filePath)
 		defer file.Close()
-		part4, errFile4 := writer.CreateFormFile("file", filepath.Base(files_filePath))
-		_, errFile4 = io.Copy(part4, file)
+		part4, _ := writer.CreateFormFile("file", filepath.Base(files_filePath))
+		_, errFile4 := io.Copy(part4, file)
 		if errFile4 != nil {
 			fmt.Println("Erro:", errFile4)
 			return
@@ -745,7 +744,6 @@ func removeClientDB(clientId string, container *sqlstore.Container) {
 	if err != nil {
 		fmt.Println("---- Erro excluindo arquivo de sessão :", err)
 	}
-	return
 }
 func getClient(clientId string) *whatsmeow.Client {
 	if clientMap[clientId] == nil {
@@ -884,7 +882,6 @@ func main() {
 		// })
 		noTimeout := c.FormValue("noTimeout")
 		sendContact := c.FormValue("contact")
-		fmt.Println("Contato: '", sendContact, "'AQUI")
 		infoObjects := c.FormValue("infoObjects")
 
 		dataProgramada := c.FormValue("dataProgramada")
@@ -903,7 +900,7 @@ func main() {
 		var documento_padrao *multipart.FileHeader = nil
 		documento_padrao, err = c.FormFile("documento_padrao")
 		if err != nil {
-			fmt.Println("Nenhum documento padrão enviado.")
+			fmt.Println("Nenhum documento padrão enviado.", err)
 		}
 		if documento_padrao != nil {
 			savePath := "./uploads/" + clientId + documento_padrao.Filename
@@ -923,7 +920,6 @@ func main() {
 		var result []map[string]interface{}
 		// Deserializando o JSON para o map
 		err = json.Unmarshal([]byte(infoObjects), &result)
-		fmt.Println(infoObjects)
 		if err != nil {
 			fmt.Printf("Erro ao converter JSON: %v", err)
 		}
@@ -1036,7 +1032,6 @@ func main() {
 								DisplayName: proto.String(sendContactMap["nome"]),
 								Vcard:       proto.String("BEGIN:VCARD\nVERSION:3.0\nN:;" + sendContactMap["nome"] + ";;;\nFN:" + sendContactMap["nome"] + "\nitem1.TEL;waid=" + cell + ":" + formatedNumber + "\nitem1.X-ABLabel:Celular\nEND:VCARD"),
 							}}
-						fmt.Println("BEGIN:VCARD\nVERSION:3.0\nN:;" + sendContactMap["nome"] + ";;;\nFN:" + sendContactMap["nome"] + "\nitem1.TEL;waid=" + cell + ":" + formatedNumber + "\nitem1.X-ABLabel:Celular\nEND:VCARD")
 						client.SendMessage(context.Background(), JID, contactMessage)
 					} else {
 						fmt.Println("FORMATADO ->", err)
@@ -1049,7 +1044,6 @@ func main() {
 				}
 				if leitorZip != nil {
 					for _, arquivo := range leitorZip.File {
-						fmt.Println("Nome do arquivo", arquivo.Name, "procurando por:", "documento_"+idImage)
 						if strings.Contains(arquivo.Name, "documento_"+idImage) {
 
 							// Criar um arquivo local para salvar
@@ -1071,7 +1065,6 @@ func main() {
 							if err != nil {
 								fmt.Printf("erro ao copiar conteúdo para o arquivo: %v", err)
 							}
-							fmt.Printf("Arquivo %s salvo em ./uploads/%s\n", fileName, fileName)
 							uniqueFileText := text
 							if documento_padrao != nil {
 								uniqueFileText = ""
@@ -1086,7 +1079,6 @@ func main() {
 					}
 				}
 				if documento_padrao != nil {
-
 					message = prepararMensagemArquivo(text, message, "./uploads/"+clientId+documento_padrao.Filename, client, clientId)
 				}
 				if quotedMessage != nil {
@@ -1506,7 +1498,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 
 	// Criando a mensagem de imagem
 	// Atribuindo a mensagem de imagem
-	mensagem_ := *message
+	mensagem_ := proto.Clone(message).(*waE2E.Message)
 	mensagem_.Conversation = nil
 	semExtensao := strings.TrimSuffix(nomeArquivo, filepath.Ext(nomeArquivo))
 
@@ -1606,7 +1598,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		}
 		mensagem_.DocumentMessage = documentMsg
 	}
-	return &mensagem_
+	return mensagem_
 }
 func formatPhoneNumber(phone string) string {
 	// Remove caracteres não numéricos
