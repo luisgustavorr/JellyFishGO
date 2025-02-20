@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"sync"
 	"time"
@@ -107,6 +108,7 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 	if strings.Contains(baseURL, "disparo") {
 		baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
 	}
+	fmt.Println(messages)
 	data := map[string]any{
 		"evento":   "MENSAGEM_RECEBIDA",
 		"sender":   2,
@@ -508,14 +510,15 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	var groupMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "@g.us")
 	var channel bool = fullInfoMessage.SourceWebMsg.GetBroadcast()
 	var statusMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "status")
-	var contactMessage bool = fullInfoMessage.Message.GetContactMessage() != nil
 
 	var LocationMessage bool = fullInfoMessage.Message.LocationMessage != nil
 	var pollMessage bool = fullInfoMessage.Message.GetPollUpdateMessage() != nil || fullInfoMessage.Message.GetPollCreationMessage() != nil || fullInfoMessage.Message.GetPollCreationMessageV2() != nil || fullInfoMessage.Message.GetPollCreationMessageV3() != nil || fullInfoMessage.Message.GetPollCreationMessageV4() != nil || fullInfoMessage.Message.GetPollCreationMessageV5() != nil
-	if groupMessage || statusMessage || pollMessage || contactMessage || LocationMessage || channel {
+	if groupMessage || statusMessage || pollMessage || LocationMessage || channel {
 		fmt.Println("Mensagem de grupo ou status, ignorando...", fullInfoMessage.Info.Chat.String())
 		return false
 	}
+	var contactMessage *waE2E.ContactMessage = fullInfoMessage.Message.GetContactMessage()
+
 	message := fullInfoMessage.Message
 	var contextInfo = message.ExtendedTextMessage.GetContextInfo()
 	var senderName string = fullInfoMessage.Info.PushName
@@ -558,11 +561,33 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		edited = 1
 		id_message = editedInfo
 	}
+	var contactObject map[string]interface{} = nil
+	if contactMessage != nil {
+		var name string = *contactMessage.DisplayName
+		var vcard string = *contactMessage.Vcard
+		startIndex := strings.Index(vcard, "waid=")
+		var numero string
+		if startIndex != -1 {
+			startIndex += len("waid=") // Pular "waid="
+			endIndex := startIndex
+			for endIndex < len(vcard) && unicode.IsDigit(rune(vcard[endIndex])) {
+				endIndex++
+			}
+			numero = vcard[startIndex:endIndex]
+		} else {
+			numero = "sem_whatsapp"
+		}
+		contactObject = map[string]interface{}{
+			"contato": numero,
+			"nome":    name,
+		}
+	}
+
 	messageAttr := map[string]interface{}{
 		"quotedMessage": quotedMessageID,
 		"edited":        edited,
+		"contact":       contactObject,
 	}
-
 	if media != "" {
 		messageAttr["file_type"] = fileType
 		if strings.Contains(fileType, "audio") {
@@ -619,7 +644,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
 		}
 	} else {
-		if media != "" || text != "" {
+		if media != "" || text != "" || contactMessage != nil {
 			if messagesToSend[clientId] == nil {
 				messagesToSend[clientId] = []*waE2E.Message{}
 			}
