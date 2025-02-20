@@ -859,7 +859,7 @@ func main() {
 		// })
 		noTimeout := c.FormValue("noTimeout")
 		sendContact := c.FormValue("contact")
-
+		fmt.Println("Contato: '", sendContact, "'AQUI")
 		infoObjects := c.FormValue("infoObjects")
 
 		dataProgramada := c.FormValue("dataProgramada")
@@ -893,17 +893,16 @@ func main() {
 			}
 		}
 		var files *multipart.FileHeader = nil
-		files, err = c.FormFile("file")
-		if err != nil {
-		}
+		files, _ = c.FormFile("file")
+
 		var result []map[string]interface{}
 		// Deserializando o JSON para o map
 		err = json.Unmarshal([]byte(infoObjects), &result)
+		fmt.Println(infoObjects)
 		if err != nil {
 			fmt.Printf("Erro ao converter JSON: %v", err)
 		}
 		if dataProgramada != "" {
-
 			if files != nil {
 				savePath := normalizeFileName("./arquivos_disparos_programados/zip_" + dataProgramada + clientId + files.Filename)
 				files_filePath = savePath
@@ -950,15 +949,11 @@ func main() {
 				default:
 					idImage = "UNDEFINED"
 				}
-				focus, ok := item["focus"].(string)
-				if !ok {
-				}
-				quotedMessage, ok := item["quotedMessage"].(map[string]interface{})
-				if !ok {
-				}
-				paymentMessage, ok := item["paymentMessage"].(map[string]interface{})
-				if !ok {
-				}
+				focus, _ := item["focus"].(string)
+
+				quotedMessage, _ := item["quotedMessage"].(map[string]interface{})
+
+				paymentMessage, _ := item["paymentMessage"].(map[string]interface{})
 
 				editedIDMessage, ok := item["editedIDMessage"].(string)
 				if !ok {
@@ -1003,28 +998,26 @@ func main() {
 						return
 					}
 
-					if err == nil {
-						validNumber, err := client.IsOnWhatsApp([]string{sendContactMap["contato"]})
-						if err != nil {
-							fmt.Println(err, "ERRO IS ONWHATSAPP")
-						}
-						response := validNumber[0]
-						cell := response.JID.User
-						formatedNumber := formatPhoneNumber(cell)
-						if formatedNumber != "" {
-							contactMessage := &waE2E.Message{
-								ContactMessage: &waE2E.ContactMessage{
-									DisplayName: proto.String(sendContactMap["nome"]),
-									Vcard:       proto.String("BEGIN:VCARD\nVERSION:3.0\nN:;" + sendContactMap["nome"] + ";;;\nFN:" + sendContactMap["nome"] + "\nitem1.TEL;waid=" + cell + ":" + formatedNumber + "\nitem1.X-ABLabel:Celular\nEND:VCARD"),
-								}}
-							fmt.Println("BEGIN:VCARD\nVERSION:3.0\nN:;" + sendContactMap["nome"] + ";;;\nFN:" + sendContactMap["nome"] + "\nitem1.TEL;waid=" + cell + ":" + formatedNumber + "\nitem1.X-ABLabel:Celular\nEND:VCARD")
-							client.SendMessage(context.Background(), JID, contactMessage)
-						} else {
-							fmt.Println("FORMATADO ->", err)
-
-						}
+					validNumber, err := client.IsOnWhatsApp([]string{sendContactMap["contato"]})
+					if err != nil {
+						fmt.Println(err, "ERRO IS ONWHATSAPP")
+					}
+					response := validNumber[0]
+					cell := response.JID.User
+					formatedNumber := formatPhoneNumber(cell)
+					if formatedNumber != "" {
+						contactMessage := &waE2E.Message{
+							ContactMessage: &waE2E.ContactMessage{
+								DisplayName: proto.String(sendContactMap["nome"]),
+								Vcard:       proto.String("BEGIN:VCARD\nVERSION:3.0\nN:;" + sendContactMap["nome"] + ";;;\nFN:" + sendContactMap["nome"] + "\nitem1.TEL;waid=" + cell + ":" + formatedNumber + "\nitem1.X-ABLabel:Celular\nEND:VCARD"),
+							}}
+						fmt.Println("BEGIN:VCARD\nVERSION:3.0\nN:;" + sendContactMap["nome"] + ";;;\nFN:" + sendContactMap["nome"] + "\nitem1.TEL;waid=" + cell + ":" + formatedNumber + "\nitem1.X-ABLabel:Celular\nEND:VCARD")
+						client.SendMessage(context.Background(), JID, contactMessage)
+					} else {
+						fmt.Println("FORMATADO ->", err)
 
 					}
+
 				}
 				if text == "" {
 					return
@@ -1038,20 +1031,20 @@ func main() {
 							fileName := strings.Replace(arquivo.Name, "documento_"+idImage+"_", "", -1)
 							destFile, err := os.Create("./uploads/" + clientId + fileName)
 							if err != nil {
-								fmt.Errorf("erro ao criar arquivo: %v", err)
+								fmt.Printf("erro ao criar arquivo: %v", err)
 							}
 							defer destFile.Close()
 
 							// Abrir o arquivo do ZIP
 							zipFileReader, err := arquivo.Open()
 							if err != nil {
-								fmt.Errorf("erro ao abrir arquivo do zip: %v", err)
+								fmt.Printf("erro ao abrir arquivo do zip: %v", err)
 							}
 							defer zipFileReader.Close()
 							// Copiar o conteúdo do arquivo do ZIP para o arquivo local
 							_, err = io.Copy(destFile, zipFileReader)
 							if err != nil {
-								fmt.Errorf("erro ao copiar conteúdo para o arquivo: %v", err)
+								fmt.Printf("erro ao copiar conteúdo para o arquivo: %v", err)
 							}
 							fmt.Printf("Arquivo %s salvo em ./uploads/%s\n", fileName, fileName)
 							uniqueFileText := text
@@ -1262,7 +1255,7 @@ func main() {
 						if qrCode {
 							png, err := qrcode.Encode(evt.Code, qrcode.Medium, 256) // Tamanho: 256x256 pixels
 							if err != nil {
-								fmt.Println("Erro ao gerar QR Code: %v", err)
+								fmt.Printf("Erro ao gerar QR Code: %v", err)
 							}
 							// Converter para Base64
 							base64Img := base64.StdEncoding.EncodeToString(png)
@@ -1383,7 +1376,7 @@ func getOrSetEmails(query string, args []any) *sql.Rows {
 		rows := &sql.Rows{}
 		return rows
 	}
-	rows, err := db.Query(query, args...)
+	rows, _ := db.Query(query, args...)
 	// for rows.Next() {
 	// 	var clientId string
 	// 	var email string
