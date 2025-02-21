@@ -55,6 +55,25 @@ type MessagesQueue struct {
 	bufferLock     sync.Mutex
 }
 
+func getGroupProfilePicture(client *whatsmeow.Client, groupJID types.JID) *types.ProfilePictureInfo {
+
+	// Obtém informações da foto do grupo
+	var params *whatsmeow.GetProfilePictureParams = nil
+	pictureInfo, err := client.GetProfilePictureInfo(groupJID, params) // `true` pega a melhor resolução disponível
+	if err != nil {
+		log.Printf("Erro ao obter a foto do grupo: %v", err)
+		pictureInfo = nil
+	}
+
+	// Exibe a URL da imagem
+	if pictureInfo != nil {
+		fmt.Println("URL da Foto do Grupo:", pictureInfo.URL)
+	} else {
+		fmt.Println("Este grupo não possui uma foto de perfil.")
+	}
+	return pictureInfo
+}
+
 func NewQueue() *MessagesQueue {
 	return &MessagesQueue{
 		messageBuffer:  make(map[string][]interface{}),
@@ -506,19 +525,20 @@ func removeString(slice []string, value string) []string {
 }
 func handleMessage(fullInfoMessage *events.Message, clientId string, client *whatsmeow.Client) bool {
 	log.Printf("------------------ %s Receiving Message ------------------------ \n\n", clientId)
-	var groupMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "@g.us")
+	// var groupMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "@g.us")
 	var channel bool = fullInfoMessage.SourceWebMsg.GetBroadcast()
 	var statusMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "status")
 
 	var LocationMessage bool = fullInfoMessage.Message.LocationMessage != nil
 	var pollMessage bool = fullInfoMessage.Message.GetPollUpdateMessage() != nil || fullInfoMessage.Message.GetPollCreationMessage() != nil || fullInfoMessage.Message.GetPollCreationMessageV2() != nil || fullInfoMessage.Message.GetPollCreationMessageV3() != nil || fullInfoMessage.Message.GetPollCreationMessageV4() != nil || fullInfoMessage.Message.GetPollCreationMessageV5() != nil
-	if groupMessage || statusMessage || pollMessage || LocationMessage || channel {
+	if statusMessage || pollMessage || LocationMessage || channel {
 		fmt.Println("Mensagem de grupo ou status, ignorando...", fullInfoMessage.Info.Chat.String())
 		return false
 	}
 	var contactMessage *waE2E.ContactMessage = fullInfoMessage.Message.GetContactMessage()
-
 	message := fullInfoMessage.Message
+	var groupMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "@g.us")
+
 	var contextInfo = message.ExtendedTextMessage.GetContextInfo()
 	var senderName string = fullInfoMessage.Info.PushName
 	var text string = getText(message)
@@ -603,6 +623,14 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		"text":      text,
 		"attrs":     messageAttr,
 		"timestamp": timestamp,
+	}
+	if groupMessage {
+		groupJID := fullInfoMessage.Info.Chat
+		groupInfo, _ := client.GetGroupInfo(groupJID)
+		groupImage := getGroupProfilePicture(client, groupJID)
+		mensagem["imagem_grupo"] = groupImage.URL
+		mensagem["nome_grupo"] = groupInfo.GroupName.Name
+		mensagem["id_grupo"] = strings.Replace(fullInfoMessage.Info.Chat.String(), "@g.us", "", -1)
 	}
 	var focus = getMessageFocus(focusedMessagesKeys, id_message)
 	if focus != "" {
@@ -973,6 +1001,7 @@ func main() {
 				focus, _ := item["focus"].(string)
 
 				quotedMessage, _ := item["quotedMessage"].(map[string]interface{})
+				id_grupo, _ := item["id_grupo"].(string)
 
 				paymentMessage, _ := item["paymentMessage"].(map[string]interface{})
 
@@ -987,31 +1016,33 @@ func main() {
 					idMensagem = "" // ou outro valor padrão
 				}
 				text := item["text"].(string)
+
 				numbers := []string{number}
 				validNumber, err := client.IsOnWhatsApp(numbers)
 				if err != nil {
 					fmt.Println(err, "ERRO ISONWHATSAPP")
 				}
-				if len(validNumber) == 0 {
-					continue
-				}
 
-				response := validNumber[0] // Acessa o primeiro item da slice
-				JID := response.JID
-
-				IsIn := response.IsIn
-				// Query := response.Query
-				// VerifiedName := response.VerifiedName
-
-				if !IsIn {
-					continue
+				var JID types.JID = types.JID{}
+				if id_grupo != "" {
+					JID = types.JID{User: strings.Replace(id_grupo, "@g.us", "", -1), Server: types.GroupServer}
+				} else {
+					if len(validNumber) == 0 {
+						continue
+					}
+					response := validNumber[0] // Acessa o primeiro item da slicet
+					JID = response.JID
+					IsIn := response.IsIn
+					if !IsIn {
+						continue
+					}
 				}
 				setStatus(client, "digitando", JID)
 
 				message := &waE2E.Message{Conversation: &text}
+
 				if sendContact != "" {
 					var sendContactMap map[string]string
-
 					// Deserializando o JSON corretamente para o map
 					err = json.Unmarshal([]byte(sendContact), &sendContactMap)
 					if err != nil {
@@ -1032,6 +1063,7 @@ func main() {
 								DisplayName: proto.String(sendContactMap["nome"]),
 								Vcard:       proto.String("BEGIN:VCARD\nVERSION:3.0\nN:;" + sendContactMap["nome"] + ";;;\nFN:" + sendContactMap["nome"] + "\nitem1.TEL;waid=" + cell + ":" + formatedNumber + "\nitem1.X-ABLabel:Celular\nEND:VCARD"),
 							}}
+
 						client.SendMessage(context.Background(), JID, contactMessage)
 					} else {
 						fmt.Println("FORMATADO ->", err)
@@ -1123,6 +1155,7 @@ func main() {
 
 				}
 				retornoEnvio, err := client.SendMessage(context.Background(), JID, message)
+
 				if err != nil {
 					fmt.Println("Erro ao enviar mensagem", err)
 				}
