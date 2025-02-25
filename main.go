@@ -628,7 +628,9 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		groupJID := fullInfoMessage.Info.Chat
 		groupInfo, _ := client.GetGroupInfo(groupJID)
 		groupImage := getGroupProfilePicture(client, groupJID)
-		mensagem["imagem_grupo"] = groupImage.URL
+		if groupImage != nil {
+			mensagem["imagem_grupo"] = groupImage.URL
+		}
 		mensagem["nome_grupo"] = groupInfo.GroupName.Name
 		mensagem["id_grupo"] = strings.Replace(fullInfoMessage.Info.Chat.String(), "@g.us", "", -1)
 	}
@@ -827,7 +829,6 @@ func main() {
 		BodyLimit:         20 * 1024 * 1024,
 	})
 	r.Use(cors.New())
-
 	r.Use(requestLogger)
 	// r.LoadHTMLGlob("templates/*.html")
 	r.Post("/stopRequest", func(c *fiber.Ctx) error {
@@ -841,7 +842,6 @@ func main() {
 		clientId := c.FormValue("clientId")
 		client := getClient(clientId)
 		if client == nil {
-
 			return c.Status(500).JSON(fiber.Map{
 				"message": "Cliente não conectado",
 			})
@@ -886,7 +886,6 @@ func main() {
 		// clientMap[clientId] = nil
 		// tryConnecting(clientId)
 		// fmt.Println("Desconectando")
-
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Cliente desconectado",
 		})
@@ -897,21 +896,15 @@ func main() {
 	r.Post("/sendFiles", func(c *fiber.Ctx) error {
 		clientId := c.FormValue("clientId")
 		log.Printf("------------------ %s Send Files Request ------------------------ \n\n", clientId)
-
 		client := getClient(clientId)
 		if client == nil {
 			return c.Status(500).JSON(fiber.Map{
 				"message": "Cliente não conectado",
 			})
 		}
-
-		// c.Status(200).JSON(fiber.Map{
-		// 	"message": "Arquivo recebido e enviado no WhatsApp.",
-		// })
 		noTimeout := c.FormValue("noTimeout")
 		sendContact := c.FormValue("contact")
 		infoObjects := c.FormValue("infoObjects")
-
 		dataProgramada := c.FormValue("dataProgramada")
 		if dataProgramada != "" {
 			layout := "2006-01-02 15:04:05"
@@ -933,7 +926,6 @@ func main() {
 		if documento_padrao != nil {
 			savePath := "./uploads/" + clientId + documento_padrao.Filename
 			if dataProgramada != "" {
-
 				savePath = normalizeFileName("./arquivos_disparos_programados/padrao_" + dataProgramada + clientId + documento_padrao.Filename)
 				documento_padrao_filePath = savePath
 			}
@@ -999,12 +991,9 @@ func main() {
 					idImage = "UNDEFINED"
 				}
 				focus, _ := item["focus"].(string)
-
 				quotedMessage, _ := item["quotedMessage"].(map[string]interface{})
 				id_grupo, _ := item["id_grupo"].(string)
-
 				paymentMessage, _ := item["paymentMessage"].(map[string]interface{})
-
 				editedIDMessage, ok := item["editedIDMessage"].(string)
 				if !ok {
 					// Defina o valor padrão ou apenas ignore a chave
@@ -1015,8 +1004,10 @@ func main() {
 					// Defina o valor padrão ou apenas ignore a chave
 					idMensagem = "" // ou outro valor padrão
 				}
-				text := item["text"].(string)
-
+				text, ok := item["text"].(string)
+				if !ok {
+					text = ""
+				}
 				numbers := []string{number}
 				validNumber, err := client.IsOnWhatsApp(numbers)
 				if err != nil {
@@ -1038,9 +1029,7 @@ func main() {
 					}
 				}
 				setStatus(client, "digitando", JID)
-
 				message := &waE2E.Message{Conversation: &text}
-
 				if sendContact != "" {
 					var sendContactMap map[string]string
 					// Deserializando o JSON corretamente para o map
@@ -1049,7 +1038,6 @@ func main() {
 						fmt.Println("Erro ao desserializar JSON:", err)
 						return
 					}
-
 					validNumber, err := client.IsOnWhatsApp([]string{sendContactMap["contato"]})
 					if err != nil {
 						fmt.Println(err, "ERRO IS ONWHATSAPP")
@@ -1063,13 +1051,10 @@ func main() {
 								DisplayName: proto.String(sendContactMap["nome"]),
 								Vcard:       proto.String("BEGIN:VCARD\nVERSION:3.0\nN:;" + sendContactMap["nome"] + ";;;\nFN:" + sendContactMap["nome"] + "\nitem1.TEL;waid=" + cell + ":" + formatedNumber + "\nitem1.X-ABLabel:Celular\nEND:VCARD"),
 							}}
-
 						client.SendMessage(context.Background(), JID, contactMessage)
 					} else {
 						fmt.Println("FORMATADO ->", err)
-
 					}
-
 				}
 				if text == "" {
 					return
@@ -1077,7 +1062,6 @@ func main() {
 				if leitorZip != nil {
 					for _, arquivo := range leitorZip.File {
 						if strings.Contains(arquivo.Name, "documento_"+idImage) {
-
 							// Criar um arquivo local para salvar
 							fileName := strings.Replace(arquivo.Name, "documento_"+idImage+"_", "", -1)
 							destFile, err := os.Create("./uploads/" + clientId + fileName)
