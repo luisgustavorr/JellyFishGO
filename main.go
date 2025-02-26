@@ -56,16 +56,12 @@ type MessagesQueue struct {
 }
 
 func getGroupProfilePicture(client *whatsmeow.Client, groupJID types.JID) *types.ProfilePictureInfo {
-
-	// Obtém informações da foto do grupo
 	var params *whatsmeow.GetProfilePictureParams = nil
 	pictureInfo, err := client.GetProfilePictureInfo(groupJID, params) // `true` pega a melhor resolução disponível
 	if err != nil {
 		log.Printf("Erro ao obter a foto do grupo: %v", err)
 		pictureInfo = nil
 	}
-
-	// Exibe a URL da imagem
 	if pictureInfo != nil {
 		fmt.Println("URL da Foto do Grupo:", pictureInfo.URL)
 	} else {
@@ -73,7 +69,6 @@ func getGroupProfilePicture(client *whatsmeow.Client, groupJID types.JID) *types
 	}
 	return pictureInfo
 }
-
 func NewQueue() *MessagesQueue {
 	return &MessagesQueue{
 		messageBuffer:  make(map[string][]interface{}),
@@ -100,13 +95,12 @@ func (c *MessagesQueue) AddMessage(clientID string, message map[string]interface
 
 	// Calcula o tempo de espera com base no tamanho do buffer
 	messageCount := len(c.messageBuffer[number])
-	timerBetweenMessage := -0.15*float64(messageCount)*float64(messageCount) + 0.5*float64(messageCount) + 5
+	timerBetweenMessage := -0.15*float64(messageCount)*float64(messageCount) + 0.5*float64(messageCount) + 7
 	if timerBetweenMessage < 0 {
 		timerBetweenMessage = 0.001
 	}
 	timerDuration := time.Duration(timerBetweenMessage * float64(time.Second))
 	fmt.Printf("ESPERANDO %.3f SEGUNDOS PARA %d MENSAGENS\n", timerBetweenMessage, messageCount)
-
 	// Define um novo timer para processar as mensagens
 	c.messageTimeout[number] = time.AfterFunc(timerDuration, func() {
 		c.ProcessMessages(clientID, number)
@@ -723,10 +717,12 @@ func tryConnecting(clientId string) bool {
 	container, err := sqlstore.New("sqlite3", "file:./clients_db/"+clientId+".db?_foreign_keys=on", dbLog)
 	if err != nil {
 		fmt.Println(err)
+		return false
 	}
 	deviceStore, err := container.GetFirstDevice()
 	if err != nil {
 		fmt.Println("erro pegandoDevice", err)
+		return false
 	}
 	clientLog := waLog.Stdout("Client", "ERROR", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
