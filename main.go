@@ -50,9 +50,9 @@ var messagesToSend = make(map[string][]*waE2E.Message)
 var focusedMessagesKeys = []string{}
 
 type MessagesQueue struct {
-	messageBuffer  map[string][]interface{}
-	messageTimeout map[string]*time.Timer
 	bufferLock     sync.Mutex
+	messageBuffer  map[string][]interface{} // Chave: clientID + "_" + number
+	messageTimeout map[string]*time.Timer   // Chave: clientID + "_" + number
 }
 
 func getGroupProfilePicture(client *whatsmeow.Client, groupJID types.JID) *types.ProfilePictureInfo {
@@ -80,29 +80,26 @@ func (c *MessagesQueue) AddMessage(clientID string, message map[string]interface
 	c.bufferLock.Lock()
 	defer c.bufferLock.Unlock()
 
-	// Inicializa o buffer para o cliente, se necessário
-	if _, exists := c.messageBuffer[number]; !exists {
-		c.messageBuffer[number] = []interface{}{}
+	compositeKey := clientID + "_" + number
+
+	if _, exists := c.messageBuffer[compositeKey]; !exists {
+		c.messageBuffer[compositeKey] = []interface{}{}
 	}
+	c.messageBuffer[compositeKey] = append(c.messageBuffer[compositeKey], message)
 
-	// Adiciona a mensagem ao buffer
-	c.messageBuffer[number] = append(c.messageBuffer[number], message)
-
-	// Reinicia o timeout para o cliente
-	if timer, exists := c.messageTimeout[number]; exists {
+	if timer, exists := c.messageTimeout[compositeKey]; exists {
 		timer.Stop()
 	}
 
-	// Calcula o tempo de espera com base no tamanho do buffer
-	messageCount := len(c.messageBuffer[number])
+	messageCount := len(c.messageBuffer[compositeKey])
 	timerBetweenMessage := -0.15*float64(messageCount)*float64(messageCount) + 0.5*float64(messageCount) + 7
 	if timerBetweenMessage < 0 {
 		timerBetweenMessage = 0.001
 	}
+
 	timerDuration := time.Duration(timerBetweenMessage * float64(time.Second))
 	fmt.Printf("ESPERANDO %.3f SEGUNDOS PARA %d MENSAGENS\n", timerBetweenMessage, messageCount)
-	// Define um novo timer para processar as mensagens
-	c.messageTimeout[number] = time.AfterFunc(timerDuration, func() {
+	c.messageTimeout[compositeKey] = time.AfterFunc(timerDuration, func() {
 		c.ProcessMessages(clientID, number)
 	})
 }
@@ -110,31 +107,37 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 	c.bufferLock.Lock()
 	defer c.bufferLock.Unlock()
 
-	// Pega as mensagens do buffer
-	messages := c.messageBuffer[number]
-	c.messageBuffer[number] = nil // Limpa o buffer
+	compositeKey := clientID + "_" + number
 
-	fmt.Printf("ENVIANDO LOTES DE %d MENSAGENS DO "+clientID+"\n", len(messages))
+	messages := c.messageBuffer[compositeKey]
+	if messages == nil {
+		return
+	}
+	c.messageBuffer[compositeKey] = nil
+
+	fmt.Printf("ENVIANDO LOTES DE %d MENSAGENS DO %s\n", len(messages), clientID)
+
 	lastIndex := strings.LastIndex(clientID, "_")
 	sufixo := clientID[lastIndex+1:]
 	baseURL := strings.Split(mapOficial[sufixo], "chatbot")[0]
 	if strings.Contains(baseURL, "disparo") {
 		baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
 	}
+
 	data := map[string]any{
 		"evento":   "MENSAGEM_RECEBIDA",
 		"sender":   2,
 		"clientId": clientID,
 		"data":     messages,
 	}
+
 	sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
-	// Remove o timer após o processamento
-	if timer, exists := c.messageTimeout[clientID]; exists {
+
+	if timer, exists := c.messageTimeout[compositeKey]; exists {
 		timer.Stop()
-		delete(c.messageTimeout, clientID)
+		delete(c.messageTimeout, compositeKey)
 	}
 }
-
 func gerarTarefasProgramadas() {
 	fmt.Println("Pegando tarefas")
 	db, err := sql.Open("sqlite3", "./manager.db")
@@ -489,15 +492,21 @@ func getSender(senderNumber string) string {
 
 var messagesQueue = NewQueue()
 
+func NewMessagesQueue() *MessagesQueue {
+	return &MessagesQueue{
+		messageBuffer:  make(map[string][]interface{}),
+		messageTimeout: make(map[string]*time.Timer),
+	}
+}
 func requestLogger(c *fiber.Ctx) error {
 	start := time.Now()
 	method := c.Method()
 	path := c.Path()
-	// ip := c.IP()
 	clientId := c.FormValue("clientId")
+	log.Printf("[ANTES] [%s] %s | ClientId: %s\n", method, path, clientId)
 	err := c.Next()
 	duration := time.Since(start)
-	log.Printf("[%s] %s | Tempo: %v | ClientId: %s\n", method, path, duration, clientId)
+	log.Printf("[DEPOIS] [%s] %s | Tempo: %v | ClientId: %s\n", method, path, duration, clientId)
 	return err
 }
 func getMessageFocus(arr []string, id_message string) string {
@@ -819,10 +828,9 @@ func main() {
 	}
 	PORT := os.Getenv("PORT_JELLYFISH_GOLANG")
 	r := fiber.New(fiber.Config{
-		ReadTimeout:       10 * time.Minute, // Ajuste o tempo limite de leitura conforme necessário
-		WriteTimeout:      10 * time.Minute,
-		StreamRequestBody: true,
-		BodyLimit:         20 * 1024 * 1024,
+		ReadTimeout:  10 * time.Minute, // Ajuste o tempo limite de leitura conforme necessário
+		WriteTimeout: 10 * time.Minute,
+		BodyLimit:    20 * 1024 * 1024,
 	})
 	r.Use(cors.New())
 	r.Use(requestLogger)
