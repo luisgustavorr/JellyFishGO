@@ -98,10 +98,12 @@ func (c *MessagesQueue) AddMessage(clientID string, message map[string]interface
 	}
 
 	timerDuration := time.Duration(timerBetweenMessage * float64(time.Second))
-	fmt.Printf("ESPERANDO %.3f SEGUNDOS PARA %d MENSAGENS\n", timerBetweenMessage, messageCount)
-	c.messageTimeout[compositeKey] = time.AfterFunc(timerDuration, func() {
-		c.ProcessMessages(clientID, number)
-	})
+	fmt.Printf("ESPERANDO %.3f SEGUNDOS PARA %d MENSAGENS DO CLIENTE %s", timerBetweenMessage, messageCount, clientID)
+	c.messageTimeout[compositeKey] = time.AfterFunc(timerDuration, func(currentClientID string) func() {
+		return func() {
+			c.ProcessMessages(currentClientID, number)
+		}
+	}(clientID)) // <--- clientID é capturado como valor aqui!
 }
 func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 	c.bufferLock.Lock()
