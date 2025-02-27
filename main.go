@@ -503,10 +503,9 @@ func requestLogger(c *fiber.Ctx) error {
 	method := c.Method()
 	path := c.Path()
 	clientId := c.FormValue("clientId")
-	log.Printf("[ANTES] [%s] %s | ClientId: %s\n", method, path, clientId)
 	err := c.Next()
 	duration := time.Since(start)
-	log.Printf("[DEPOIS] [%s] %s | Tempo: %v | ClientId: %s\n", method, path, duration, clientId)
+	log.Printf(" [%s] %s | Tempo: %v | ClientId: %s\n", method, path, duration, clientId)
 	return err
 }
 func getMessageFocus(arr []string, id_message string) string {
