@@ -98,7 +98,7 @@ func (c *MessagesQueue) AddMessage(clientID string, message map[string]interface
 	}
 
 	timerDuration := time.Duration(timerBetweenMessage * float64(time.Second))
-	fmt.Printf("ESPERANDO %.3f SEGUNDOS PARA %d MENSAGENS DO CLIENTE %s", timerBetweenMessage, messageCount, clientID)
+	fmt.Printf("ESPERANDO %.3f SEGUNDOS PARA %d MENSAGENS DO CLIENTE %s \n", timerBetweenMessage, messageCount, clientID)
 	c.messageTimeout[compositeKey] = time.AfterFunc(timerDuration, func(currentClientID string) func() {
 		return func() {
 			c.ProcessMessages(currentClientID, number)
@@ -749,6 +749,7 @@ func tryConnecting(clientId string) bool {
 
 			desconctarCliente(clientId)
 			fmt.Println("Cliente " + clientId + " deslogou do WhatsApp!")
+
 		case *events.Message:
 			if strings.Contains(clientId, "chat") {
 				handleMessage(v, clientId, client)
@@ -829,9 +830,10 @@ func main() {
 	}
 	PORT := os.Getenv("PORT_JELLYFISH_GOLANG")
 	r := fiber.New(fiber.Config{
-		ReadTimeout:  10 * time.Minute, // Ajuste o tempo limite de leitura conforme necessário
-		WriteTimeout: 10 * time.Minute,
-		BodyLimit:    20 * 1024 * 1024,
+		ReadTimeout:       10 * time.Minute, // Ajuste o tempo limite de leitura conforme necessário
+		WriteTimeout:      10 * time.Minute,
+		StreamRequestBody: true,
+		BodyLimit:         20 * 1024 * 1024,
 	})
 	r.Use(cors.New())
 	r.Use(requestLogger)
