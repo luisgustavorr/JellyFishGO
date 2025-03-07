@@ -6,8 +6,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"io"
 	"log"
 	"net/http"
@@ -26,11 +27,15 @@ import (
 
 	"math/rand"
 
+	_ "net/http/pprof"
+
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/pprof"
 	"github.com/h2non/filetype"
 	"github.com/joho/godotenv"
+	jsoniter "github.com/json-iterator/go"
 	_ "github.com/mattn/go-sqlite3" // Importação do driver SQLite
 	"github.com/skip2/go-qrcode"
 	"go.mau.fi/whatsmeow"
@@ -41,9 +46,11 @@ import (
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
+	_ "golang.org/x/image/webp" // Importa suporte para WebP
 	"google.golang.org/protobuf/proto"
 )
 
+var json = jsoniter.ConfigFastest
 var clientMap = make(map[string]*whatsmeow.Client)
 var mapOficial, _ = loadConfigInicial("spacemid_luis:G4l01313@tcp(pro107.dnspro.com.br:3306)/spacemid_sistem_adm")
 var messagesToSend = make(map[string][]*waE2E.Message)
@@ -51,22 +58,26 @@ var focusedMessagesKeys = []string{}
 
 type MessagesQueue struct {
 	bufferLock     sync.Mutex
-	messageBuffer  map[string][]interface{} // Chave: clientID + "_" + number
-	messageTimeout map[string]*time.Timer   // Chave: clientID + "_" + number
+	messageBuffer  map[string][]interface{}
+	messageTimeout map[string]*time.Timer
 }
 
+var groupPicCache sync.Map // Thread-safe
+var dbPool *sql.DB
+
 func getGroupProfilePicture(client *whatsmeow.Client, groupJID types.JID) *types.ProfilePictureInfo {
-	var params *whatsmeow.GetProfilePictureParams = nil
-	pictureInfo, err := client.GetProfilePictureInfo(groupJID, params) // `true` pega a melhor resolução disponível
+	if cached, ok := groupPicCache.Load(groupJID); ok {
+		return cached.(*types.ProfilePictureInfo)
+	}
+	pictureInfo, err := client.GetProfilePictureInfo(groupJID, nil)
 	if err != nil {
-		log.Printf("Erro ao obter a foto do grupo: %v", err)
-		pictureInfo = nil
+		log.Printf("Erro ao obter foto do grupo: %v", err)
+		return nil
 	}
-	if pictureInfo != nil {
-		fmt.Println("URL da Foto do Grupo:", pictureInfo.URL)
-	} else {
-		fmt.Println("Este grupo não possui uma foto de perfil.")
-	}
+	groupPicCache.Store(groupJID, pictureInfo)
+	time.AfterFunc(1*time.Hour, func() {
+		groupPicCache.Delete(groupJID)
+	})
 	return pictureInfo
 }
 func NewQueue() *MessagesQueue {
@@ -78,14 +89,11 @@ func NewQueue() *MessagesQueue {
 func (c *MessagesQueue) AddMessage(clientID string, message map[string]interface{}, number string) {
 	c.bufferLock.Lock()
 	defer c.bufferLock.Unlock()
-
 	compositeKey := clientID + "_" + number
-
 	if _, exists := c.messageBuffer[compositeKey]; !exists {
 		c.messageBuffer[compositeKey] = []interface{}{}
 	}
 	c.messageBuffer[compositeKey] = append(c.messageBuffer[compositeKey], message)
-
 	if timer, exists := c.messageTimeout[compositeKey]; exists {
 		timer.Stop()
 	}
@@ -94,7 +102,6 @@ func (c *MessagesQueue) AddMessage(clientID string, message map[string]interface
 	if timerBetweenMessage < 0 {
 		timerBetweenMessage = 0.001
 	}
-
 	timerDuration := time.Duration(timerBetweenMessage * float64(time.Second))
 	fmt.Printf("ESPERANDO %.3f SEGUNDOS PARA %d MENSAGENS DO CLIENTE %s \n", timerBetweenMessage, messageCount, clientID)
 	c.messageTimeout[compositeKey] = time.AfterFunc(timerDuration, func(currentClientID string) func() {
@@ -106,33 +113,26 @@ func (c *MessagesQueue) AddMessage(clientID string, message map[string]interface
 func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 	c.bufferLock.Lock()
 	defer c.bufferLock.Unlock()
-
 	compositeKey := clientID + "_" + number
-
 	messages := c.messageBuffer[compositeKey]
 	if messages == nil {
 		return
 	}
 	c.messageBuffer[compositeKey] = nil
-
 	fmt.Printf("ENVIANDO LOTES DE %d MENSAGENS DO %s\n", len(messages), clientID)
-
 	lastIndex := strings.LastIndex(clientID, "_")
 	sufixo := clientID[lastIndex+1:]
 	baseURL := strings.Split(mapOficial[sufixo], "chatbot")[0]
 	if strings.Contains(baseURL, "disparo") {
 		baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
 	}
-
 	data := map[string]any{
 		"evento":   "MENSAGEM_RECEBIDA",
 		"sender":   2,
 		"clientId": clientID,
 		"data":     messages,
 	}
-
 	sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
-
 	if timer, exists := c.messageTimeout[compositeKey]; exists {
 		timer.Stop()
 		delete(c.messageTimeout, compositeKey)
@@ -140,10 +140,13 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 }
 func gerarTarefasProgramadas() {
 	fmt.Println("Pegando tarefas")
-	db, err := sql.Open("sqlite3", "./manager.db")
+	var err error
+	dbPool, err = sql.Open("sqlite3", "./manager.db")
 	if err != nil {
 		log.Println("ERRO AO ADD TAREFA DB", err)
 	}
+	dbPool.SetMaxOpenConns(10)
+	db := dbPool
 	createTableSQL := `CREATE TABLE IF NOT EXISTS tarefas_agendadas (
 		clientId TEXT,
 		data_desejada TEXT,
@@ -160,7 +163,6 @@ func gerarTarefasProgramadas() {
 		log.Fatal(err)
 	}
 	defer rows.Close()
-
 	defer db.Close()
 	for rows.Next() {
 		var clientId string
@@ -211,7 +213,6 @@ func sendFilesProgramados(clientId string, infoObjects string, documento_padrao 
 	}
 	client := &http.Client{}
 	req, err := http.NewRequest(method, url, payload)
-
 	if err != nil {
 		fmt.Println("erro Enviando sendFiles", err)
 		return
@@ -220,7 +221,6 @@ func sendFilesProgramados(clientId string, infoObjects string, documento_padrao 
 	res, err := client.Do(req)
 	if err != nil {
 		fmt.Println("erro Enviando sendFiles1", err)
-
 		return
 	}
 	defer res.Body.Close()
@@ -268,10 +268,14 @@ func removerTarefaProgramadaDB(clientId string, dataDesejada string, documento_p
 	if files != "" {
 		os.Remove(files)
 	}
-	newDB, err := sql.Open("sqlite3", "./manager.db")
+	var err error
+	dbPool, err = sql.Open("sqlite3", "./manager.db")
+
 	if err != nil {
 		log.Println("ERRO AO ADD TAREFA DB", err)
 	}
+	dbPool.SetMaxOpenConns(10) // Ajuste co
+	newDB := dbPool
 	createTableSQL := `CREATE TABLE IF NOT EXISTS tarefas_agendadas (
 		clientId TEXT,
 		data_desejada TEXT,
@@ -462,23 +466,12 @@ func getMedia(evt *events.Message, clientId string) (string, string) {
 	}
 }
 func getSender(senderNumber string) string {
-	parts := strings.Split(senderNumber, "@")
-	if len(parts) > 0 {
-		number := parts[0]
-		return number
-	} else {
-		return ""
-	}
+	parts := strings.SplitN(senderNumber, "@", 2) // Mais eficiente que Split
+	return parts[0]
 }
 
 var messagesQueue = NewQueue()
 
-func NewMessagesQueue() *MessagesQueue {
-	return &MessagesQueue{
-		messageBuffer:  make(map[string][]interface{}),
-		messageTimeout: make(map[string]*time.Timer),
-	}
-}
 func requestLogger(c *fiber.Ctx) error {
 	start := time.Now()
 	method := c.Method()
@@ -595,7 +588,6 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			messageAttr["media"] = media
 		}
 	}
-
 	mensagem := map[string]interface{}{
 		"id":        id_message,
 		"sender":    senderName,
@@ -633,11 +625,9 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	}
 	if fromMe {
 		if media != "" || text != "" {
-
 			listaMensagens := []map[string]interface{}{}
 			fmt.Println("-> Mensagem ENVIADA PELO WHATSAPP:", id_message, senderName, senderNumber, text)
 			listaMensagens = append(listaMensagens, objetoMensagens)
-
 			data := map[string]any{
 				"evento":   "MENSAGEM_RECEBIDA",
 				"sender":   1,
@@ -691,7 +681,6 @@ func autoConnection() {
 		cleanClientId := strings.Replace(fileName, ".db", "", -1)
 		fmt.Println(cleanClientId)
 		getClient(cleanClientId)
-
 		if clientMap[cleanClientId] == nil {
 			sendEmailDisconnection(cleanClientId)
 			removeClientDB(cleanClientId, nil)
@@ -713,12 +702,15 @@ func tryConnecting(clientId string) bool {
 	clientLog := waLog.Stdout("Client", "ERROR", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 	client.EnableAutoReconnect = true
-
 	client.AddEventHandler(func(evt interface{}) {
 		switch v := evt.(type) {
 		case *events.Connected:
 			clientMap[clientId] = client
 			fmt.Println("Cliente conectado ao WhatsApp!")
+		case *events.Receipt:
+			if strings.Contains(clientId, "chat") {
+				handleSeenMessage(v, clientId)
+			}
 		case *events.Disconnected:
 			fmt.Println("Cliente " + clientId + "desconectou do WhatsApp!")
 		case *events.LoggedOut:
@@ -798,6 +790,63 @@ func normalizeFileName(filename string) string {
 	normalizedFileName = strings.ReplaceAll(normalizedFileName, ":", "_")
 	return normalizedFileName
 }
+
+var seenMessagesQueue = NewQueue()
+
+func sendSeenMessages(clientId string) {
+	fmt.Println(seenMessagesQueue.messageBuffer[clientId])
+	data := map[string]any{
+		"evento":   "MENSAGEM_LIDA",
+		"clientId": clientId,
+		"data":     seenMessagesQueue.messageBuffer[clientId],
+	}
+	lastIndex := strings.LastIndex(clientId, "_")
+	sufixo := clientId[lastIndex+1:]
+	baseURL := strings.Split(mapOficial[sufixo], "chatbot")[0]
+	if strings.Contains(baseURL, "disparo") {
+		baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
+	}
+	fmt.Println(data)
+	// sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novo-id/")
+	seenMessagesQueue.messageBuffer[clientId] = nil
+
+	if timer, exists := seenMessagesQueue.messageTimeout[clientId]; exists {
+		timer.Stop()
+		delete(seenMessagesQueue.messageTimeout, clientId)
+	}
+}
+func addSeenMessageToQueue(message interface{}, clientId string) bool {
+	if _, exists := seenMessagesQueue.messageBuffer[clientId]; !exists {
+		seenMessagesQueue.messageBuffer[clientId] = []interface{}{}
+	}
+	seenMessagesQueue.messageBuffer[clientId] = append(seenMessagesQueue.messageBuffer[clientId], message)
+	if timer, exists := seenMessagesQueue.messageTimeout[clientId]; exists {
+		timer.Stop()
+	}
+	messageCount := len(seenMessagesQueue.messageBuffer[clientId])
+	timerBetweenMessage := -0.15*float64(messageCount)*float64(messageCount) + 0.5*float64(messageCount) + 2
+	if timerBetweenMessage < 0 {
+		timerBetweenMessage = 0.001
+	}
+	timerDuration := time.Duration(timerBetweenMessage * float64(time.Second))
+	seenMessagesQueue.messageTimeout[clientId] = time.AfterFunc(timerDuration, func(currentClientID string) func() {
+		return func() {
+			sendSeenMessages(currentClientID)
+		}
+	}(clientId))
+	return true
+}
+func handleSeenMessage(event *events.Receipt, clientId string) {
+	if event.Type == "read" && !event.IsFromMe {
+		for i := 0; i < len(event.MessageIDs); i++ {
+			var seenMessage = make(map[string]interface{})
+			seenMessage["idMessage"] = event.MessageIDs[i]
+			seenMessage["chat"] = event.Chat.User
+			seenMessage["lida"] = true
+			addSeenMessageToQueue(seenMessage, clientId)
+		}
+	}
+}
 func main() {
 	autoConnection()
 	err := godotenv.Load()
@@ -812,6 +861,7 @@ func main() {
 		BodyLimit:         20 * 1024 * 1024,
 	})
 	r.Use(cors.New())
+	r.Use(pprof.New())
 	r.Use(requestLogger)
 	// r.LoadHTMLGlob("templates/*.html")
 	r.Post("/stopRequest", func(c *fiber.Ctx) error {
@@ -911,11 +961,21 @@ func main() {
 			if dataProgramada != "" {
 				savePath = normalizeFileName("./arquivos_disparos_programados/padrao_" + dataProgramada + clientId + documento_padrao.Filename)
 				documento_padrao_filePath = savePath
+
 			}
 			// Salvar o arquivo no caminho especificado
 			if err := c.SaveFile(documento_padrao, savePath); err != nil {
 				fmt.Printf("Erro ao salvar o arquivo: %v", err)
 			}
+			if strings.Contains(savePath, ".webp") {
+				errorconvert := convertWebPToJPEG(savePath, strings.Replace(savePath, ".webp", ".jpeg", -1))
+				if errorconvert == nil {
+					defer os.Remove("./uploads/" + clientId + documento_padrao.Filename)
+					documento_padrao.Filename = strings.Replace(documento_padrao.Filename, ".webp", ".jpeg", -1)
+				}
+			}
+			fmt.Println("Resultado: ")
+
 		}
 		var files *multipart.FileHeader = nil
 		files, _ = c.FormFile("file")
@@ -1231,6 +1291,10 @@ func main() {
 				sendToEndPoint(data, baseURL)
 			case *events.Disconnected:
 				fmt.Println("Cliente " + clientId + "desconectou do WhatsApp!")
+			case *events.Receipt:
+				if strings.Contains(clientId, "chat") {
+					handleSeenMessage(v, clientId)
+				}
 			case *events.LoggedOut:
 				clientMap[clientId] = nil
 				desconctarCliente(clientId)
@@ -1461,6 +1525,35 @@ func desconctarCliente(clientId string) bool {
 	sendToEndPoint(data, baseURL)
 	return true
 }
+func convertWebPToJPEG(inputPath, outputPath string) error {
+	// Abre o arquivo WebP
+	file, err := os.Open(inputPath)
+	if err != nil {
+		fmt.Println("Erro abrindo a imagem:", err)
+		return err
+	}
+	defer file.Close()
+	// Decodifica a imagem WebP
+	img, _, err := image.Decode(file)
+	if err != nil {
+		fmt.Println("Erro ao decodificar imagem WebP:", err)
+		return err
+	}
+	// Cria o arquivo de saída JPEG
+	outFile, err := os.Create(outputPath)
+	if err != nil {
+		fmt.Println("Erro criando arquivo de saída:", err)
+		return err
+	}
+	defer outFile.Close()
+	// Codifica a imagem como JPEG e salva no arquivo
+	err = jpeg.Encode(outFile, img, &jpeg.Options{Quality: 90})
+	if err != nil {
+		fmt.Println("Erro ao converter para JPEG:", err)
+		return err
+	}
+	return nil
+}
 func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile string, client *whatsmeow.Client, clientId string) *waE2E.Message {
 	// Abrindo o arquivo
 	file, err := os.Open(chosedFile)
@@ -1468,7 +1561,6 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		fmt.Printf("Erro ao abrir o arquivo: %v", err)
 	}
 	defer file.Close()
-
 	// Detectando o tipo MIME
 	buf := make([]byte, 512) // O pacote mime usa os primeiros 512 bytes para detectar o tipo MIME
 	_, err = file.Read(buf)
@@ -1481,27 +1573,18 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 	if kind == filetype.Unknown {
 		fmt.Println("Unknown file type")
 	}
-
 	mimeType := kind.MIME.Value
 	if strings.Contains(nomeArquivo, ".mp3") {
 		mimeType = "audio/mpeg"
 	}
-
-	// Resetando o ponteiro do arquivo
 	file.Seek(0, 0)
-	// Lendo o conteúdo do arquivo completo
 	contentBuf := bytes.NewBuffer(nil)
 	if _, err := contentBuf.ReadFrom(file); err != nil {
 		fmt.Printf("Erro ao ler o arquivo completo: %v", err)
 	}
-	// Fazendo o upload da mídia
-
-	// Criando a mensagem de imagem
-	// Atribuindo a mensagem de imagem
 	mensagem_ := proto.Clone(message).(*waE2E.Message)
 	mensagem_.Conversation = nil
 	semExtensao := strings.TrimSuffix(nomeArquivo, filepath.Ext(nomeArquivo))
-
 	if strings.Contains(nomeArquivo, ".mp3") {
 		resp, err := client.Upload(context.Background(), contentBuf.Bytes(), whatsmeow.MediaAudio)
 		if err != nil {
@@ -1524,7 +1607,6 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 			fmt.Printf("Erro ao fazer upload da mídia: %v", err)
 		}
 		fmt.Println("O arquivo é uma imagem válida.")
-
 		imageMsg := &waE2E.ImageMessage{
 			Caption:       proto.String(text),
 			Mimetype:      proto.String(mimeType),
