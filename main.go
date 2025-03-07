@@ -75,7 +75,6 @@ func NewQueue() *MessagesQueue {
 		messageTimeout: make(map[string]*time.Timer),
 	}
 }
-
 func (c *MessagesQueue) AddMessage(clientID string, message map[string]interface{}, number string) {
 	c.bufferLock.Lock()
 	defer c.bufferLock.Unlock()
@@ -90,7 +89,6 @@ func (c *MessagesQueue) AddMessage(clientID string, message map[string]interface
 	if timer, exists := c.messageTimeout[compositeKey]; exists {
 		timer.Stop()
 	}
-
 	messageCount := len(c.messageBuffer[compositeKey])
 	timerBetweenMessage := -0.15*float64(messageCount)*float64(messageCount) + 0.5*float64(messageCount) + 7
 	if timerBetweenMessage < 0 {
@@ -237,24 +235,18 @@ func sendFilesProgramados(clientId string, infoObjects string, documento_padrao 
 }
 func iniciarTarefaProgramada(clientId string, dataDesejada string, infoObjects string, documento_padrao string, files string) {
 	dbDateStr := dataDesejada
-
-	// Converter a string considerando o fuso horário correto
 	layout := "2006-01-02 15:04:05"
 	loc, err := time.LoadLocation("America/Sao_Paulo")
 	if err != nil {
 		log.Fatal("Erro ao carregar fuso horário:", err)
 	}
-
-	// Parse na data considerando o fuso horário local
 	scheduledTime, err := time.ParseInLocation(layout, dbDateStr, loc)
 	if err != nil {
 		log.Println("Erro ao converter data:", err)
 		removerTarefaProgramadaDB(clientId, dataDesejada, documento_padrao, files)
 		return
 	}
-
-	now := time.Now().In(loc) // Ambos no mesmo fuso horário
-
+	now := time.Now().In(loc)          // Ambos no mesmo fuso horário
 	duration := scheduledTime.Sub(now) // Forma alternativa mais precisa
 	if duration <= 0 {
 		fmt.Println("----> O horário agendado já passou. <-----", duration, now, scheduledTime)
@@ -269,7 +261,6 @@ func iniciarTarefaProgramada(clientId string, dataDesejada string, infoObjects s
 		removerTarefaProgramadaDB(clientId, dataDesejada, documento_padrao, files)
 	})
 }
-
 func removerTarefaProgramadaDB(clientId string, dataDesejada string, documento_padrao string, files string) {
 	if documento_padrao != "" {
 		os.Remove(documento_padrao)
@@ -300,7 +291,6 @@ func removerTarefaProgramadaDB(clientId string, dataDesejada string, documento_p
 		log.Println("Erro ao executar a consulta:", err)
 	}
 }
-
 func addTarefaProgramadaDB(clientId string, dataDesejada string, infoObjects string, documento_padrao string, files string) {
 	newDB, err := sql.Open("sqlite3", "./manager.db")
 	if err != nil {
@@ -332,13 +322,9 @@ func loadConfigInicial(dsn string) (map[string]string, map[string]string) {
 	if err != nil {
 		log.Println(err)
 	}
-
-	// Verificar se a conexão com o banco está ok
 	if err := db.Ping(); err != nil {
 		log.Println(err)
 	}
-
-	// Executar uma consulta simples
 	rows, err := db.Query("SELECT sufixo, link_oficial,base_link_teste,link_teste FROM clientes")
 	if err != nil {
 		log.Println(err)
@@ -377,7 +363,6 @@ func getCSRFToken() string {
 	return randomToken
 }
 func sendToEndPoint(data map[string]any, url string) {
-
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		fmt.Printf("Erro ao criar marshal: %v", err)
@@ -390,20 +375,16 @@ func sendToEndPoint(data map[string]any, url string) {
 	if err != nil {
 		fmt.Printf("Erro ao criar a requisição: %v", err)
 	}
-	// Definindo os cabeçalhos
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "jelly_fish_con_|7@625^4|7")
 	req.Header.Set("X-CSRFToken", getCSRFToken())
-	// Enviando a requisição com http.Client
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("Erro ao enviar a requisição: %v", err)
 	}
 	defer resp.Body.Close()
-	// Verificando o status da resposta
 	fmt.Println("Resposta Status: [", resp.Status, "] | evento : ", data["evento"], " | clientId :", data["clientId"])
-
 }
 func getText(message *waE2E.Message) string {
 	var text string = message.GetConversation()
@@ -478,9 +459,7 @@ func getMedia(evt *events.Message, clientId string) (string, string) {
 		return base64Data, mimeType
 	} else {
 		return "", ""
-
 	}
-
 }
 func getSender(senderNumber string) string {
 	parts := strings.Split(senderNumber, "@")
@@ -529,10 +508,8 @@ func removeString(slice []string, value string) []string {
 }
 func handleMessage(fullInfoMessage *events.Message, clientId string, client *whatsmeow.Client) bool {
 	log.Printf("------------------ %s Receiving Message ------------------------ \n\n", clientId)
-	// var groupMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "@g.us")
 	var channel bool = fullInfoMessage.SourceWebMsg.GetBroadcast()
 	var statusMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "status")
-
 	var LocationMessage bool = fullInfoMessage.Message.LocationMessage != nil
 	var pollMessage bool = fullInfoMessage.Message.GetPollUpdateMessage() != nil || fullInfoMessage.Message.GetPollCreationMessage() != nil || fullInfoMessage.Message.GetPollCreationMessageV2() != nil || fullInfoMessage.Message.GetPollCreationMessageV3() != nil || fullInfoMessage.Message.GetPollCreationMessageV4() != nil || fullInfoMessage.Message.GetPollCreationMessageV5() != nil
 	if statusMessage || pollMessage || LocationMessage || channel {
@@ -564,7 +541,6 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	}
 	// Convertendo para o timestamp (seconds desde a época Unix)
 	timestamp := t.Unix()
-
 	var quotedMessageID string = contextInfo.GetStanzaID()
 	media, fileType := getMedia(fullInfoMessage, clientId)
 	edited := 0
