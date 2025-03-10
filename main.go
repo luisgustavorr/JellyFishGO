@@ -549,14 +549,14 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	if fromMe {
 		senderNumber = fullInfoMessage.Info.Chat.User
 	}
-	if processedMessages[clientId+"_"+senderNumber+"_"+id_message] {
-		if !fromMe {
-			var MessageID []types.MessageID = []types.MessageID{id_message}
-			client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
-		}
-		fmt.Println("!--------------------->MENSAGEM COM ID JÁ ENVIADO<---------------------!")
-		return false // Ignora mensagem já processada
-	}
+	// if processedMessages[clientId+"_"+senderNumber+"_"+id_message] {
+	// 	if !fromMe {
+	// 		var MessageID []types.MessageID = []types.MessageID{id_message}
+	// 		client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
+	// 	}
+	// 	fmt.Println("!--------------------->MENSAGEM COM ID JÁ ENVIADO<---------------------!")
+	// 	return false // Ignora mensagem já processada
+	// }
 	params := &whatsmeow.GetProfilePictureParams{}
 	profilePic, _ := client.GetProfilePictureInfo(JID, params)
 
