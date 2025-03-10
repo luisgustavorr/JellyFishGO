@@ -524,10 +524,11 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		return false
 	}
 	var id_message string = fullInfoMessage.Info.ID
-	if processedMessages[id_message] {
+	if processedMessages[clientId+"_"+senderNumber+"_"+id_message] {
+		fmt.Println("MENSAGEM COM ID JÁ ENVIADO")
 		return false // Ignora mensagem já processada
 	}
-	processedMessages[id_message] = true
+	processedMessages[clientId+"_"+senderNumber+"_"+id_message] = true
 	var datetime string = fullInfoMessage.Info.Timestamp.String()
 	var editedInfo = message.GetProtocolMessage().GetKey().GetId()
 	layout := "2006-01-02 15:04:05"
