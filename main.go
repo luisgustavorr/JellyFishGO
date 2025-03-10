@@ -740,7 +740,6 @@ func tryConnecting(clientId string) bool {
 
 	}
 }
-
 func removeClientDB(clientId string, container *sqlstore.Container) {
 	if container != nil {
 		container.Close()
@@ -757,7 +756,6 @@ func getClient(clientId string) *whatsmeow.Client {
 	}
 	return clientMap[clientId]
 }
-
 func randomBetween(min, max int) int {
 	rand.Seed(time.Now().UnixNano()) // Garante que os números aleatórios mudem a cada execução
 	return rand.Intn(max-min+1) + min
@@ -779,7 +777,6 @@ func setStatus(client *whatsmeow.Client, status string, JID types.JID) {
 		client.SendChatPresence(JID, types.ChatPresence(types.ChatPresenceMediaAudio), "")
 		return
 	}
-
 }
 
 var stoppedQrCodeRequests = make(map[string]bool)
@@ -806,10 +803,8 @@ func sendSeenMessages(clientId string) {
 	if strings.Contains(baseURL, "disparo") {
 		baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
 	}
-	fmt.Println(data)
-	// sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novo-id/")
+	sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/read/")
 	seenMessagesQueue.messageBuffer[clientId] = nil
-
 	if timer, exists := seenMessagesQueue.messageTimeout[clientId]; exists {
 		timer.Stop()
 		delete(seenMessagesQueue.messageTimeout, clientId)
@@ -1022,8 +1017,13 @@ func main() {
 				}
 				leitorZip = zipReader
 			}
-			for _, item := range result {
+			for i := 0; i < len(result); i++ {
+				item := result[i]
+				nextItem := item
 				number := "+" + item["number"].(string)
+				if i+1 < len(result) {
+					nextItem = result[i+1]
+				}
 				var idImage string
 				switch v := item["id_image"].(type) {
 				case string:
@@ -1193,10 +1193,8 @@ func main() {
 						focusedMessagesKeys = []string{}
 					}
 					focusedMessagesKeys = append(focusedMessagesKeys, focus+"_"+retornoEnvio.ID)
-
 				}
 				if idMensagem != "" {
-
 					data := map[string]any{
 						"evento":   "MENSAGEM_ENVIADA",
 						"clientId": clientId,
@@ -1214,9 +1212,13 @@ func main() {
 					}
 					sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novo-id/")
 				}
-
-				var tempoEsperado int = randomBetween(30, 45)
-				if len(result) > 1 && noTimeout == "" {
+				var tempoEsperado float32 = float32(randomBetween(30, 45))
+				if len(result) > 1 && noTimeout == "" && i+1 < len(result) {
+					nextItemText, ok := nextItem["text"].(string)
+					if !ok {
+						nextItemText = ""
+					}
+					tempoEsperado = tempoEsperado + float32(len(nextItemText))*0.03
 					fmt.Println("Tempo esperado para enviar a próxima mensagem:", tempoEsperado, "segundos...")
 					time.Sleep(time.Duration(tempoEsperado) * time.Second)
 				}
