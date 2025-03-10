@@ -55,6 +55,7 @@ var clientMap = make(map[string]*whatsmeow.Client)
 var mapOficial, _ = loadConfigInicial("spacemid_luis:G4l01313@tcp(pro107.dnspro.com.br:3306)/spacemid_sistem_adm")
 var messagesToSend = make(map[string][]*waE2E.Message)
 var focusedMessagesKeys = []string{}
+var processedMessages = make(map[string]bool)
 
 type MessagesQueue struct {
 	bufferLock     sync.Mutex
@@ -523,6 +524,10 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		return false
 	}
 	var id_message string = fullInfoMessage.Info.ID
+	if processedMessages[id_message] {
+		return false // Ignora mensagem já processada
+	}
+	processedMessages[id_message] = true
 	var datetime string = fullInfoMessage.Info.Timestamp.String()
 	var editedInfo = message.GetProtocolMessage().GetKey().GetId()
 	layout := "2006-01-02 15:04:05"
@@ -643,6 +648,8 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
 		}
 	} else {
+		var MessageID []types.MessageID = []types.MessageID{id_message}
+		client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
 		if media != "" || text != "" || contactMessage != nil {
 			if messagesToSend[clientId] == nil {
 				messagesToSend[clientId] = []*waE2E.Message{}
@@ -650,8 +657,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			messagesToSend[clientId] = append(messagesToSend[clientId], message)
 			messagesQueue.AddMessage(clientId, objetoMensagens, senderNumber)
 			fmt.Println("<- Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text)
-			var MessageID []types.MessageID = []types.MessageID{id_message}
-			client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
+
 		}
 	}
 	return true
@@ -721,6 +727,7 @@ func tryConnecting(clientId string) bool {
 		case *events.Message:
 			if strings.Contains(clientId, "chat") {
 				handleMessage(v, clientId, client)
+
 			}
 		}
 	})
