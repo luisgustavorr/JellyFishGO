@@ -884,7 +884,7 @@ func saveMessagesReceived() {
 		batch := make([]string, 0, 100)
 		for msgID := range pendingSync {
 			batch = append(batch, msgID)
-			if len(batch) >= 40 {
+			if len(batch) >= 20 {
 				fmt.Println("🌐 -> SALVANDO MENSAGENS NO DB ")
 				placeholders := make([]string, len(batch))
 				values := make([]interface{}, len(batch))
