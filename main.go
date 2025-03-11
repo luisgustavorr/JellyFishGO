@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/smtp"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -56,6 +57,9 @@ var mapOficial, _ = loadConfigInicial("spacemid_luis:G4l01313@tcp(pro107.dnspro.
 var messagesToSend = make(map[string][]*waE2E.Message)
 var focusedMessagesKeys = []string{}
 var processedMessages = make(map[string]bool)
+var _ = godotenv.Load()
+var MODO_DESENVOLVIMENTO = os.Getenv("MODO_DESENVOLVIMENTO")
+var desenvolvilemto = MODO_DESENVOLVIMENTO == "1"
 
 type MessagesQueue struct {
 	bufferLock     sync.Mutex
@@ -348,12 +352,10 @@ func loadConfigInicial(dsn string) (map[string]string, map[string]string) {
 		mapProducao[sufixo] = link_oficial
 		mapDesenvolvimento[sufixo] = base_link_teste + link_teste
 	}
-	err = godotenv.Load()
 	if err != nil {
 		log.Fatal("Erro ao carregar o arquivo .env")
 	}
-	MODO_DESENVOLVIMENTO := os.Getenv("MODO_DESENVOLVIMENTO")
-	var desenvolvilemto = MODO_DESENVOLVIMENTO == "1"
+
 	fmt.Println("MODO DESENVOLVIMENTO", desenvolvilemto)
 
 	if desenvolvilemto {
@@ -504,7 +506,6 @@ func removeString(slice []string, value string) []string {
 	}
 	return filtered
 }
-
 func handleMessage(fullInfoMessage *events.Message, clientId string, client *whatsmeow.Client) bool {
 	log.Printf("------------------ %s Receiving Message ------------------------ \n\n", clientId)
 	var channel bool = fullInfoMessage.SourceWebMsg.GetBroadcast()
@@ -552,28 +553,18 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	if fromMe {
 		senderNumber = fullInfoMessage.Info.Chat.User
 	}
-	// if sentMessages[id_message+"_"+senderNumber+"_"+clientId] {
-	// 	fmt.Println("-> Mensagem REPETIDA:", id_message, senderName, senderNumber, clientId, text)
-	// 	fmt.Println("!--------------------->MENSAGEM COM ID JÁ ENVIADO<---------------------!")
-	// 	return false
-	// }
+	var uniqueMessageID string = strings.Replace(id_message+"_"+senderNumber+"_"+clientId, " ", "", -1)
+	if sentMessages[uniqueMessageID] {
+		fmt.Println("❌ -> Mensagem REPETIDA:", id_message, senderName, senderNumber, clientId, text)
+		fmt.Println("!--------------------->MENSAGEM COM ID JÁ ENVIADO<---------------------!", sentMessages[uniqueMessageID])
+		return false
+	}
 	fmt.Println("Mensagens registradas : ", len(sentMessages)+1)
-	sentMessages[id_message+"_"+senderNumber+"_"+clientId] = true
+	sentMessages[uniqueMessageID] = true
 	pendingSync <- id_message + "_" + senderNumber + "_" + clientId
-	// if processedMessages[clientId+"_"+senderNumber+"_"+id_message] {
-	// 	if !fromMe {
-	// 		var MessageID []types.MessageID = []types.MessageID{id_message}
-	// 		client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
-	// 	}
-	// 	fmt.Println("<- Mensagem REPETIDA:", id_message, senderName, senderNumber, clientId, text)
-	// 	fmt.Println("!--------------------->MENSAGEM COM ID JÁ ENVIADO<---------------------!")
-	// 	return false // Ignora mensagem já processada
-	// }
 	processedMessages[clientId+"_"+senderNumber+"_"+id_message] = true
-
 	params := &whatsmeow.GetProfilePictureParams{}
 	profilePic, _ := client.GetProfilePictureInfo(JID, params)
-
 	if editedInfo != "" {
 		edited = 1
 		id_message = editedInfo
@@ -685,10 +676,13 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 
 func safePanic(arguments ...any) {
 	log.Println("Pânico controlado -> ", arguments)
-	// cmd := exec.Command("pm2", "restart", "jellyFishGO")
-	// if err := cmd.Run(); err != nil {
-	// 	log.Println("Erro ao reiniciar PM2:", err)
-	// }
+	if !desenvolvilemto {
+		cmd := exec.Command("pm2", "restart", "jellyFishGO")
+		if err := cmd.Run(); err != nil {
+			log.Println("Erro ao reiniciar PM2:", err)
+		}
+	}
+
 }
 func autoConnection() {
 
