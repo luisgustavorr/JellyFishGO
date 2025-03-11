@@ -734,7 +734,7 @@ func tryConnecting(clientId string) bool {
 		switch v := evt.(type) {
 		case *events.Connected:
 			clientMap[clientId] = client
-			fmt.Println("Cliente conectado ao WhatsApp!")
+			fmt.Println("🎉 -> CLIENTE CONECTADO", clientId)
 		case *events.Receipt:
 			if strings.Contains(clientId, "chat") {
 				handleSeenMessage(v, clientId)
@@ -879,7 +879,7 @@ func saveMessagesReceived() {
 		for msgID := range pendingSync {
 			batch = append(batch, msgID)
 			if len(batch) >= 20 {
-				fmt.Println("🌐 -> SALVANDO MENSAGENS NO DB ")
+				fmt.Println("💾 -> SALVANDO MENSAGENS NO DB ")
 				placeholders := make([]string, len(batch))
 				values := make([]interface{}, len(batch))
 				for i, msgID := range batch {
@@ -1395,7 +1395,7 @@ func main() {
 				}
 				sendToEndPoint(data, baseURL)
 			case *events.Disconnected:
-				fmt.Println("Cliente " + clientId + "desconectou do WhatsApp!")
+				fmt.Println("🔄 -> RECONECTANDO CLIENTE", clientId)
 			case *events.Receipt:
 				if strings.Contains(clientId, "chat") {
 					handleSeenMessage(v, clientId)
