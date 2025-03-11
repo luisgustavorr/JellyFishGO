@@ -552,11 +552,11 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	if fromMe {
 		senderNumber = fullInfoMessage.Info.Chat.User
 	}
-	if sentMessages[id_message+"_"+senderNumber+"_"+clientId] {
-		fmt.Println("-> Mensagem REPETIDA:", id_message, senderName, senderNumber, clientId, text)
-		fmt.Println("!--------------------->MENSAGEM COM ID JÁ ENVIADO<---------------------!")
-		return false
-	}
+	// if sentMessages[id_message+"_"+senderNumber+"_"+clientId] {
+	// 	fmt.Println("-> Mensagem REPETIDA:", id_message, senderName, senderNumber, clientId, text)
+	// 	fmt.Println("!--------------------->MENSAGEM COM ID JÁ ENVIADO<---------------------!")
+	// 	return false
+	// }
 	fmt.Println("Mensagens registradas : ", len(sentMessages)+1)
 	sentMessages[id_message+"_"+senderNumber+"_"+clientId] = true
 	pendingSync <- id_message + "_" + senderNumber + "_" + clientId
