@@ -553,16 +553,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	if fromMe {
 		senderNumber = fullInfoMessage.Info.Chat.User
 	}
-	var uniqueMessageID string = strings.Replace(id_message+"_"+senderNumber+"_"+clientId, " ", "", -1)
-	if sentMessages[uniqueMessageID] {
-		fmt.Println("❌ -> Mensagem REPETIDA:", id_message, senderName, senderNumber, clientId, text)
-		fmt.Println("!--------------------->MENSAGEM COM ID JÁ ENVIADO<---------------------!", sentMessages[uniqueMessageID])
-		return false
-	}
-	fmt.Println("Mensagens registradas : ", len(sentMessages)+1)
-	sentMessages[uniqueMessageID] = true
-	pendingSync <- id_message + "_" + senderNumber + "_" + clientId
-	processedMessages[clientId+"_"+senderNumber+"_"+id_message] = true
+
 	params := &whatsmeow.GetProfilePictureParams{}
 	profilePic, _ := client.GetProfilePictureInfo(JID, params)
 	if editedInfo != "" {
@@ -659,6 +650,12 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
 		}
 	} else {
+		var uniqueMessageID string = strings.Replace(id_message+"_"+senderNumber+"_"+clientId, " ", "", -1)
+		if sentMessages[uniqueMessageID] {
+			fmt.Println("❌ -> Mensagem REPETIDA:", id_message, senderName, senderNumber, clientId, text)
+			fmt.Println("!--------------------->MENSAGEM COM ID JÁ ENVIADO<---------------------!", sentMessages[uniqueMessageID])
+			return false
+		}
 		var MessageID []types.MessageID = []types.MessageID{id_message}
 		client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
 		if media != "" || text != "" || contactMessage != nil {
@@ -668,7 +665,10 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			messagesToSend[clientId] = append(messagesToSend[clientId], message)
 			messagesQueue.AddMessage(clientId, objetoMensagens, senderNumber)
 			fmt.Println("📩 -> Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text)
-
+			fmt.Println("Mensagens registradas : ", len(sentMessages)+1)
+			sentMessages[uniqueMessageID] = true
+			pendingSync <- id_message + "_" + senderNumber + "_" + clientId
+			processedMessages[clientId+"_"+senderNumber+"_"+id_message] = true
 		}
 	}
 	return true
