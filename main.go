@@ -104,7 +104,7 @@ func (c *MessagesQueue) AddMessage(clientID string, message map[string]interface
 		timerBetweenMessage = 0.001
 	}
 	timerDuration := time.Duration(timerBetweenMessage * float64(time.Second))
-	fmt.Printf("ESPERANDO %.3f SEGUNDOS PARA %d MENSAGENS DO CLIENTE %s \n", timerBetweenMessage, messageCount, clientID)
+	fmt.Printf("⏳ -> ESPERANDO %.3f SEGUNDOS PARA %d MENSAGENS DO CLIENTE %s \n", timerBetweenMessage, messageCount, clientID)
 	c.messageTimeout[compositeKey] = time.AfterFunc(timerDuration, func(currentClientID string) func() {
 		return func() {
 			c.ProcessMessages(currentClientID, number)
@@ -120,7 +120,7 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 		return
 	}
 	c.messageBuffer[compositeKey] = nil
-	fmt.Printf("ENVIANDO LOTES DE %d MENSAGENS DO %s\n", len(messages), clientID)
+	fmt.Printf("📦 -> ENVIANDO LOTES DE %d MENSAGENS DO %s\n", len(messages), clientID)
 	lastIndex := strings.LastIndex(clientID, "_")
 	sufixo := clientID[lastIndex+1:]
 	baseURL := strings.Split(mapOficial[sufixo], "chatbot")[0]
@@ -389,7 +389,7 @@ func sendToEndPoint(data map[string]any, url string) {
 		fmt.Printf("Erro ao enviar a requisição: %v", err)
 	}
 	defer resp.Body.Close()
-	fmt.Println("Resposta Status: [", resp.Status, "] | evento : ", data["evento"], " | clientId :", data["clientId"])
+	fmt.Println("🌐 -> Resposta Status: [", resp.Status, "] | evento : ", data["evento"], " | clientId :", data["clientId"])
 }
 func getText(message *waE2E.Message) string {
 	var text string = message.GetConversation()
@@ -472,6 +472,10 @@ func getSender(senderNumber string) string {
 }
 
 var messagesQueue = NewQueue()
+var (
+	sentMessages = make(map[string]bool)
+	pendingSync  = make(chan string, 1000)
+)
 
 func requestLogger(c *fiber.Ctx) error {
 	start := time.Now()
@@ -500,6 +504,7 @@ func removeString(slice []string, value string) []string {
 	}
 	return filtered
 }
+
 func handleMessage(fullInfoMessage *events.Message, clientId string, client *whatsmeow.Client) bool {
 	log.Printf("------------------ %s Receiving Message ------------------------ \n\n", clientId)
 	var channel bool = fullInfoMessage.SourceWebMsg.GetBroadcast()
@@ -524,7 +529,6 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		return false
 	}
 	var id_message string = fullInfoMessage.Info.ID
-
 	var datetime string = fullInfoMessage.Info.Timestamp.String()
 	var editedInfo = message.GetProtocolMessage().GetKey().GetId()
 	layout := "2006-01-02 15:04:05"
@@ -541,13 +545,21 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	edited := 0
 	validNumber, err := client.IsOnWhatsApp([]string{senderNumber})
 	if err != nil {
-		fmt.Println(err, "ERRO IS ONWHATSAPP")
+		safePanic(err, "ERRO IS ONWHATSAPP")
 	}
 	response := validNumber[0] // Acessa o primeiro item da slice
 	JID := response.JID
 	if fromMe {
 		senderNumber = fullInfoMessage.Info.Chat.User
 	}
+	if sentMessages[id_message+"_"+senderNumber+"_"+clientId] {
+		fmt.Println("-> Mensagem REPETIDA:", id_message, senderName, senderNumber, clientId, text)
+		fmt.Println("!--------------------->MENSAGEM COM ID JÁ ENVIADO<---------------------!")
+		return false
+	}
+	fmt.Println("Mensagens registradas : ", len(sentMessages)+1)
+	sentMessages[id_message+"_"+senderNumber+"_"+clientId] = true
+	pendingSync <- id_message + "_" + senderNumber + "_" + clientId
 	// if processedMessages[clientId+"_"+senderNumber+"_"+id_message] {
 	// 	if !fromMe {
 	// 		var MessageID []types.MessageID = []types.MessageID{id_message}
@@ -664,14 +676,22 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			}
 			messagesToSend[clientId] = append(messagesToSend[clientId], message)
 			messagesQueue.AddMessage(clientId, objetoMensagens, senderNumber)
-			fmt.Println("<- Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text)
+			fmt.Println("📩 -> Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text)
 
 		}
 	}
 	return true
 }
 
+func safePanic(arguments ...any) {
+	log.Println("Pânico controlado -> ", arguments)
+	// cmd := exec.Command("pm2", "restart", "jellyFishGO")
+	// if err := cmd.Run(); err != nil {
+	// 	log.Println("Erro ao reiniciar PM2:", err)
+	// }
+}
 func autoConnection() {
+
 	dir := "./clients_db" // Substitua pelo caminho da sua pasta
 	fmt.Println("---------RODANDO")
 	// Listar arquivos na pasta
@@ -767,6 +787,7 @@ func removeClientDB(clientId string, container *sqlstore.Container) {
 func getClient(clientId string) *whatsmeow.Client {
 	if clientMap[clientId] == nil {
 		tryConnecting(clientId)
+
 		time.Sleep(500)
 	}
 	return clientMap[clientId]
@@ -806,7 +827,6 @@ func normalizeFileName(filename string) string {
 var seenMessagesQueue = NewQueue()
 
 func sendSeenMessages(clientId string) {
-	fmt.Println(seenMessagesQueue.messageBuffer[clientId])
 	data := map[string]any{
 		"evento":   "MENSAGEM_LIDA",
 		"clientId": clientId,
@@ -818,6 +838,7 @@ func sendSeenMessages(clientId string) {
 	if strings.Contains(baseURL, "disparo") {
 		baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
 	}
+	fmt.Println("✅ -> MENSAGEM LIDA DO CLIENTE ", clientId)
 	sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/read/")
 	seenMessagesQueue.messageBuffer[clientId] = nil
 	if timer, exists := seenMessagesQueue.messageTimeout[clientId]; exists {
@@ -857,7 +878,78 @@ func handleSeenMessage(event *events.Receipt, clientId string) {
 		}
 	}
 }
+func saveMessagesReceived() {
+	fmt.Println("Deve salvar mensagens")
+	go func() {
+		batch := make([]string, 0, 100)
+		for msgID := range pendingSync {
+			batch = append(batch, msgID)
+			if len(batch) >= 5 {
+				fmt.Println("🌐 -> SALVANDO MENSAGENS NO DB ")
+				placeholders := make([]string, len(batch))
+				values := make([]interface{}, len(batch))
+				for i, msgID := range batch {
+					placeholders[i] = "(?)"
+					values[i] = msgID
+				}
+				var err error
+				db, err := sql.Open("sqlite3", "./messages.db")
+				db.SetMaxOpenConns(10) // Ajuste co
+				if err != nil {
+					safePanic("ERRO AO ADD TAREFA DB", err)
+				}
+				createTableSQL := `CREATE TABLE IF NOT EXISTS sent_messages (
+                    id TEXT
+                );`
+				_, err = db.Exec(createTableSQL)
+				if err != nil {
+					log.Fatal("Erro ao criar TABELA", err)
+				}
+				query := "INSERT INTO sent_messages (id) VALUES " + strings.Join(placeholders, ",")
+				_, _ = db.Exec(query, values...)
+				batch = batch[:0]
+			}
+		}
+	}()
+}
+func loadMessagesReceiveds() {
+	var err error
+	db, err := sql.Open("sqlite3", "./messages.db")
+	db.SetMaxOpenConns(10) // Ajuste co
+	if err != nil {
+		safePanic("ERRO AO ADD TAREFA DB", err)
+	}
+	createTableSQL := `CREATE TABLE IF NOT EXISTS sent_messages (
+                    id TEXT
+                );`
+	_, err = db.Exec(createTableSQL)
+	if err != nil {
+		log.Fatal("Erro ao criar TABELA", err)
+	}
+	query := "SELECT * FROM sent_messages"
+	result, _ := db.Query(query)
+	defer result.Close()
+	if result != nil {
+		fmt.Println(result)
+		for result.Next() {
+			var id string
+			if err := result.Scan(&id); err != nil {
+				log.Println(err)
+			}
+			sentMessages[id] = true
+		}
+
+	}
+}
 func main() {
+	loadMessagesReceiveds()
+	saveMessagesReceived()
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Panic detectado:", r)
+			// Cleanup de emergência
+		}
+	}()
 	autoConnection()
 	err := godotenv.Load()
 	if err != nil {
@@ -905,7 +997,7 @@ func main() {
 		}
 		validNumber, err := client.IsOnWhatsApp([]string{receiverNumber})
 		if err != nil {
-			fmt.Println(err, "ERRO IS ONWHATSAPP")
+			safePanic(err, "ERRO IS ONWHATSAPP")
 		}
 		response := validNumber[0]
 		JID := response.JID
@@ -1098,7 +1190,8 @@ func main() {
 					}
 					validNumber, err := client.IsOnWhatsApp([]string{sendContactMap["contato"]})
 					if err != nil {
-						fmt.Println(err, "ERRO IS ONWHATSAPP")
+						safePanic(err, "ERRO IS ONWHATSAPP")
+
 					}
 					response := validNumber[0]
 					cell := response.JID.User
@@ -1170,7 +1263,7 @@ func main() {
 					}
 					validNumber, err := client.IsOnWhatsApp([]string{sender})
 					if err != nil {
-						fmt.Println(err, "ERRO IS ONWHATSAPP")
+						safePanic(err, "ERRO IS ONWHATSAPP")
 					}
 					response := validNumber[0]
 					senderJID := response.JID
@@ -1201,7 +1294,7 @@ func main() {
 				if err != nil {
 					fmt.Println("Erro ao enviar mensagem", err)
 				}
-				fmt.Println("-> Mensagem ENVIADA:", retornoEnvio.ID, clientId, text)
+				fmt.Println("📦 -> MENSAGEM ENVIADA:", retornoEnvio.ID, clientId, text)
 
 				if focus != "" {
 					if focusedMessagesKeys == nil {
@@ -1234,7 +1327,7 @@ func main() {
 						nextItemText = ""
 					}
 					tempoEsperado = tempoEsperado + float32(len(nextItemText))*0.03
-					fmt.Println("Tempo esperado para enviar a próxima mensagem:", tempoEsperado, "segundos...")
+					fmt.Println("⏳ Tempo esperado para enviar a próxima mensagem:", tempoEsperado, "segundos...")
 					time.Sleep(time.Duration(tempoEsperado) * time.Second)
 				}
 			}
@@ -1289,7 +1382,7 @@ func main() {
 			switch v := evt.(type) {
 			case *events.Connected:
 				clientMap[clientId] = client
-				fmt.Println("Cliente conectado ao WhatsApp, enviando evento")
+				fmt.Println("🎉 -> CLIENTE CONECTADO", clientId)
 				data := map[string]any{
 					"evento":   "CLIENTE_CONECTADO",
 					"clientId": clientId,
@@ -1299,6 +1392,7 @@ func main() {
 						"data_conexao":     "2025-01-20",
 					},
 				}
+
 				lastIndex := strings.LastIndex(clientId, "_")
 				sufixo := clientId[lastIndex+1:]
 				baseURL := mapOficial[sufixo]
@@ -1524,7 +1618,7 @@ func sendEmailDisconnection(clientId string) {
 	}
 }
 func desconctarCliente(clientId string) bool {
-	fmt.Println("Desconectando " + clientId + " ...")
+	fmt.Println("⛔ -> CLIENTE DESCONECTADO", clientId)
 	sendEmailDisconnection(clientId)
 	client := getClient(clientId)
 	if client != nil {
