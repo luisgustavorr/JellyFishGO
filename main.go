@@ -652,7 +652,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		}
 	} else {
 		var uniqueMessageID string = strings.Replace(id_message+"_"+senderNumber+"_"+clientId, " ", "", -1)
-		if val, exists := sentMessages[uniqueMessageID]; exists && val {
+		if val, exists := sentMessages[uniqueMessageID]; exists && val && edited == 0 {
 			fmt.Println("❌ -> Mensagem REPETIDA:", id_message, senderName, senderNumber, clientId, text)
 			fmt.Println("!--------------------->MENSAGEM COM ID JÁ ENVIADO<---------------------!", sentMessages[uniqueMessageID])
 			return false
