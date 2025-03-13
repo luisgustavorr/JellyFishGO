@@ -14,10 +14,11 @@ import (
 	"net/http"
 	"net/smtp"
 	"os"
-	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"unicode"
 
 	"sync"
@@ -673,19 +674,12 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	}
 	return true
 }
-
 func safePanic(arguments ...any) {
 	log.Println("Pânico controlado -> ", arguments)
-	if !desenvolvilemto {
-		cmd := exec.Command("pm2", "restart", "jellyFishGO")
-		if err := cmd.Run(); err != nil {
-			log.Println("Erro ao reiniciar PM2:", err)
-		}
-	}
-
+	saveMessagesReceived()
+	os.Exit(1)
 }
 func autoConnection() {
-
 	dir := "./clients_db" // Substitua pelo caminho da sua pasta
 	fmt.Println("---------RODANDO")
 	// Listar arquivos na pasta
@@ -693,7 +687,6 @@ func autoConnection() {
 	if err != nil {
 		fmt.Printf("Erro ao ler a pasta: %v", err)
 	}
-
 	// Criar uma fatia para armazenar os nomes dos arquivos
 	var fileNames []string
 
@@ -935,7 +928,20 @@ func loadMessagesReceiveds() {
 
 	}
 }
+func cleanup() {
+	fmt.Println("FECHANDO")
+	saveMessagesReceived()
+}
 func main() {
+	defer cleanup() // Fecha conexões, salva estado, etc.
+	// Captura sinais de interrupção (Ctrl+C)
+	signalCh := make(chan os.Signal, 1)
+	signal.Notify(signalCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-signalCh
+		cleanup()
+		os.Exit(0)
+	}()
 	loadMessagesReceiveds()
 	saveMessagesReceived()
 	defer func() {
@@ -1119,6 +1125,11 @@ func main() {
 				leitorZip = zipReader
 			}
 			for i := 0; i < len(result); i++ {
+				client := getClient(clientId)
+				if client == nil {
+					return
+				}
+				fmt.Println("Cliente recuperado")
 				item := result[i]
 				nextItem := item
 				number := "+" + item["number"].(string)
