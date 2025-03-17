@@ -520,7 +520,6 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	var contactMessage *waE2E.ContactMessage = fullInfoMessage.Message.GetContactMessage()
 	message := fullInfoMessage.Message
 	var groupMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "@g.us")
-
 	var contextInfo = message.ExtendedTextMessage.GetContextInfo()
 	var senderName string = fullInfoMessage.Info.PushName
 	var text string = getText(message)
@@ -554,7 +553,6 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	if fromMe {
 		senderNumber = fullInfoMessage.Info.Chat.User
 	}
-
 	params := &whatsmeow.GetProfilePictureParams{}
 	profilePic, _ := client.GetProfilePictureInfo(JID, params)
 	if editedInfo != "" {
@@ -1106,7 +1104,9 @@ func main() {
 		}
 		// Exibindo o resultado
 		clientIdCopy := clientId
-		go func(clientId string) {
+		resultCopy := result
+		documento_padraoCopy := documento_padrao
+		go func(clientId string, result []map[string]interface{}, documento_padrao *multipart.FileHeader) {
 			log.Printf("------------------ %s Inside Go Func------------------------ \n\n", clientId)
 
 			var leitorZip *zip.Reader = nil
@@ -1145,6 +1145,7 @@ func main() {
 				default:
 					idImage = "UNDEFINED"
 				}
+
 				focus, _ := item["focus"].(string)
 				quotedMessage, _ := item["quotedMessage"].(map[string]interface{})
 				id_grupo, _ := item["id_grupo"].(string)
@@ -1272,7 +1273,6 @@ func main() {
 					}
 					response := validNumber[0]
 					senderJID := response.JID
-
 					var msg_quote *waE2E.Message = &waE2E.Message{
 						ExtendedTextMessage: &waE2E.ExtendedTextMessage{
 							Text: proto.String(messageQuoted),
@@ -1299,7 +1299,7 @@ func main() {
 				if err != nil {
 					fmt.Println("Erro ao enviar mensagem", err)
 				}
-				fmt.Println("📦 -> MENSAGEM ENVIADA:", retornoEnvio.ID, clientId, text)
+				fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", retornoEnvio.ID, clientId, text, number)
 
 				if focus != "" {
 					if focusedMessagesKeys == nil {
@@ -1331,7 +1331,7 @@ func main() {
 					if !ok {
 						nextItemText = ""
 					}
-					tempoEsperado = tempoEsperado + float32(len(nextItemText))*0.03
+					tempoEsperado = tempoEsperado + float32(utf8.RuneCountInString(nextItemText))*0.03
 					fmt.Println("⏳ Tempo esperado para enviar a próxima mensagem:", tempoEsperado, "segundos...")
 					time.Sleep(time.Duration(tempoEsperado) * time.Second)
 				}
@@ -1345,7 +1345,7 @@ func main() {
 				}
 			}()
 
-		}(clientIdCopy)
+		}(clientIdCopy, resultCopy, documento_padraoCopy)
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Arquivo recebido e enviado no WhatsApp.",
 		})
