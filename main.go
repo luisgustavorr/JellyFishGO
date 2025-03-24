@@ -760,6 +760,9 @@ func tryConnecting(clientId string) bool {
 
 	}
 }
+
+var clientsMutex sync.RWMutex
+
 func removeClientDB(clientId string, container *sqlstore.Container) {
 	if container != nil {
 		container.Close()
@@ -770,6 +773,8 @@ func removeClientDB(clientId string, container *sqlstore.Container) {
 	}
 }
 func getClient(clientId string) *whatsmeow.Client {
+	clientsMutex.RLock()
+	defer clientsMutex.RUnlock()
 	if clientMap[clientId] == nil {
 		tryConnecting(clientId)
 
@@ -1106,7 +1111,8 @@ func main() {
 		clientIdCopy := clientId
 		resultCopy := result
 		documento_padraoCopy := documento_padrao
-		go func(clientId string, result []map[string]interface{}, documento_padrao *multipart.FileHeader) {
+		filesCopy := files
+		go func(clientId string, result []map[string]interface{}, documento_padrao *multipart.FileHeader, files *multipart.FileHeader) {
 			log.Printf("------------------ %s Inside Go Func------------------------ \n\n", clientId)
 
 			var leitorZip *zip.Reader = nil
@@ -1125,6 +1131,8 @@ func main() {
 				leitorZip = zipReader
 			}
 			for i := 0; i < len(result); i++ {
+				log.Printf("------------------ %s Inside Go Func For------------------------ \n\n", clientId)
+
 				client := getClient(clientId)
 				if client == nil {
 					return
@@ -1167,7 +1175,7 @@ func main() {
 				numbers := []string{number}
 				validNumber, err := client.IsOnWhatsApp(numbers)
 				if err != nil {
-					fmt.Println(err, "ERRO ISONWHATSAPP")
+					fmt.Println(err, "ERRO ISONWHATSAPP") // <-DEU O ERRO AQUI
 				}
 
 				var JID types.JID = types.JID{}
@@ -1345,7 +1353,7 @@ func main() {
 				}
 			}()
 
-		}(clientIdCopy, resultCopy, documento_padraoCopy)
+		}(clientIdCopy, resultCopy, documento_padraoCopy, filesCopy)
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Arquivo recebido e enviado no WhatsApp.",
 		})
