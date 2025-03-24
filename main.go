@@ -815,8 +815,11 @@ func normalizeFileName(filename string) string {
 }
 
 var seenMessagesQueue = NewQueue()
+var messagesMutex sync.RWMutex
 
 func sendSeenMessages(clientId string) {
+	messagesMutex.RLock()
+	defer messagesMutex.RUnlock()
 	data := map[string]any{
 		"evento":   "MENSAGEM_LIDA",
 		"clientId": clientId,
@@ -837,6 +840,8 @@ func sendSeenMessages(clientId string) {
 	}
 }
 func addSeenMessageToQueue(message interface{}, clientId string) bool {
+	messagesMutex.RLock()
+	defer messagesMutex.RUnlock()
 	if _, exists := seenMessagesQueue.messageBuffer[clientId]; !exists {
 		seenMessagesQueue.messageBuffer[clientId] = []interface{}{}
 	}
@@ -869,6 +874,8 @@ func handleSeenMessage(event *events.Receipt, clientId string) {
 	}
 }
 func saveMessagesReceived() {
+	messagesMutex.RLock()
+	defer messagesMutex.RUnlock()
 	fmt.Println("Deve salvar mensagens")
 	go func() {
 		batch := make([]string, 0, 100)
@@ -903,6 +910,8 @@ func saveMessagesReceived() {
 	}()
 }
 func loadMessagesReceiveds() {
+	messagesMutex.RLock()
+	defer messagesMutex.RUnlock()
 	var err error
 	db, err := sql.Open("sqlite3", "./messages.db")
 	db.SetMaxOpenConns(10) // Ajuste co
@@ -935,6 +944,7 @@ func cleanup() {
 	fmt.Println("FECHANDO")
 	saveMessagesReceived()
 }
+
 func main() {
 	defer cleanup() // Fecha conexões, salva estado, etc.
 	// Captura sinais de interrupção (Ctrl+C)
