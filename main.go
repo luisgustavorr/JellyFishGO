@@ -1031,11 +1031,7 @@ func main() {
 	r.Post("/destroySession", func(c *fiber.Ctx) error {
 		clientId := c.FormValue("clientId")
 		desconctarCliente(clientId)
-		// client := getClient(clientId)
-		// client.Logout()
-		// clientMap[clientId] = nil
-		// tryConnecting(clientId)
-		// fmt.Println("Desconectando")
+
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Cliente desconectado",
 		})
