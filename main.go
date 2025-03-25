@@ -59,7 +59,10 @@ var (
 )
 var processingLocks sync.Map
 var mapOficial, _ = loadConfigInicial("spacemid_luis:G4l01313@tcp(pro107.dnspro.com.br:3306)/spacemid_sistem_adm")
-var messagesToSend = make(map[string][]*waE2E.Message)
+var (
+	messagesToSend    = make(map[string][]*waE2E.Message)
+	messagesSendMutex sync.RWMutex
+)
 var focusedMessagesKeys = []string{}
 var processedMessages = make(map[string]bool)
 var _ = godotenv.Load()
@@ -114,13 +117,20 @@ func (c *MessagesQueue) AddMessage(clientID string, message map[string]interface
 	}
 	timerDuration := time.Duration(timerBetweenMessage * float64(time.Second))
 	fmt.Printf("⏳ -> ESPERANDO %.3f SEGUNDOS PARA %d MENSAGENS DO CLIENTE %s \n", timerBetweenMessage, messageCount, clientID)
-	c.messageTimeout[compositeKey] = time.AfterFunc(timerDuration, func(currentClientID string) func() {
+	c.messageTimeout[compositeKey] = time.AfterFunc(timerDuration, func(currentClientID string, number string) func() {
 		return func() {
 			c.ProcessMessages(currentClientID, number)
 		}
-	}(clientID)) // <--- clientID é capturado como valor aqui!
+	}(clientID, number)) // <--- clientID é capturado como valor aqui!
+}
+func addMessageToSend(clientId string, msg *waE2E.Message) {
+	messagesSendMutex.Lock()
+	defer messagesSendMutex.Unlock()
+	messagesToSend[clientId] = append(messagesToSend[clientId], msg)
 }
 func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
+	messagesSendMutex.RLock()
+	defer messagesSendMutex.RUnlock()
 	c.bufferLock.Lock()
 	defer c.bufferLock.Unlock()
 	compositeKey := clientID + "_" + number
@@ -149,7 +159,6 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 	}
 }
 func gerarTarefasProgramadas() {
-	fmt.Println("Pegando tarefas")
 	var err error
 	dbPool, err = sql.Open("sqlite3", "./manager.db")
 	if err != nil {
@@ -512,7 +521,6 @@ func removeString(slice []string, value string) []string {
 	return filtered
 }
 func handleMessage(fullInfoMessage *events.Message, clientId string, client *whatsmeow.Client) bool {
-	log.Printf("------------------ %s Receiving Message ------------------------ \n\n", clientId)
 	var channel bool = fullInfoMessage.SourceWebMsg.GetBroadcast()
 	var statusMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "status")
 	var LocationMessage bool = fullInfoMessage.Message.LocationMessage != nil
@@ -653,6 +661,8 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
 		}
 	} else {
+		log.Printf("------------------ %s Receiving Message ------------------------ \n\n", clientId)
+
 		var uniqueMessageID string = strings.Replace(id_message+"_"+senderNumber+"_"+clientId, " ", "", -1)
 		if val, exists := sentMessages[uniqueMessageID]; exists && val && edited == 0 {
 			fmt.Println("❌ -> Mensagem REPETIDA:", id_message, senderName, senderNumber, clientId, text)
@@ -662,10 +672,11 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		var MessageID []types.MessageID = []types.MessageID{id_message}
 		client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
 		if media != "" || text != "" || contactMessage != nil {
+
 			if messagesToSend[clientId] == nil {
 				messagesToSend[clientId] = []*waE2E.Message{}
 			}
-			messagesToSend[clientId] = append(messagesToSend[clientId], message)
+			addMessageToSend(clientId, message)
 			messagesQueue.AddMessage(clientId, objetoMensagens, senderNumber)
 			fmt.Println("📩 -> Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text)
 			fmt.Println("Mensagens registradas : ", len(sentMessages)+1)
@@ -701,16 +712,19 @@ func autoConnection() {
 	}
 
 	for _, fileName := range fileNames {
-		cleanClientId := strings.Replace(fileName, ".db", "", -1)
-		fmt.Println(cleanClientId)
-		getClient(cleanClientId)
-		if clientMap[cleanClientId] == nil {
+		cleanClientId := strings.TrimSuffix(fileName, ".db")
+		client := getClient(cleanClientId) // Usar acesso seguro
+		if client == nil {
 			sendEmailDisconnection(cleanClientId)
 			removeClientDB(cleanClientId, nil)
 		}
 	}
 }
 func tryConnecting(clientId string) bool {
+	if clientMap[clientId] != nil {
+		fmt.Println("⚠️ Cliente já conectado:", clientId)
+		return true
+	}
 	dbLog := waLog.Stdout("Database", "INFO", true)
 	container, err := sqlstore.New("sqlite3", "file:./clients_db/"+clientId+".db?_foreign_keys=on", dbLog)
 	if err != nil {
@@ -728,14 +742,14 @@ func tryConnecting(clientId string) bool {
 	client.AddEventHandler(func(evt interface{}) {
 		switch v := evt.(type) {
 		case *events.Connected:
-			clientMap[clientId] = client
+			setClient(clientId, client)
 			fmt.Println("🎉 -> CLIENTE CONECTADO", clientId)
 		case *events.Receipt:
 			if strings.Contains(clientId, "chat") {
 				handleSeenMessage(v, clientId)
 			}
 		case *events.Disconnected:
-			fmt.Println("Cliente " + clientId + "desconectou do WhatsApp!")
+			fmt.Println("🔄 -> RECONECTANDO CLIENTE", clientId)
 		case *events.LoggedOut:
 
 			desconctarCliente(clientId)
@@ -748,12 +762,13 @@ func tryConnecting(clientId string) bool {
 			}
 		}
 	})
+
 	if client.Store.ID == nil {
 		// removeClientDB(clientId, container)
 		return false
 	} else {
 		err = client.Connect()
-		clientMap[clientId] = client
+		setClient(clientId, client)
 		if strings.Contains(clientId, "chat") {
 			setStatus(client, "conectado", types.JID{})
 		}
@@ -763,6 +778,7 @@ func tryConnecting(clientId string) bool {
 		return true
 
 	}
+
 }
 
 func removeClientDB(clientId string, container *sqlstore.Container) {
@@ -775,14 +791,47 @@ func removeClientDB(clientId string, container *sqlstore.Container) {
 	}
 }
 func getClient(clientId string) *whatsmeow.Client {
+	clientsMutex.RLock()
+	client, exists := clientMap[clientId]
+	clientsMutex.RUnlock()
+	if exists {
+		return client
+	}
+
+	// Agora, tentamos conectar sem manter o bloqueio
+	if !tryConnecting(clientId) {
+		return nil
+	}
+
+	// Pegamos o cliente novamente para evitar erro de nil
+	clientsMutex.Lock()
+	client, exists = clientMap[clientId]
+	clientsMutex.Unlock()
+
+	if !exists {
+		fmt.Println("❌ ERRO: Cliente não foi corretamente atribuído após tryConnecting")
+		return nil
+	}
+
+	return client
+}
+
+func setClient(clientId string, client *whatsmeow.Client) {
 	clientsMutex.Lock()
 	defer clientsMutex.Unlock()
-	if clientMap[clientId] == nil {
-		if !tryConnecting(clientId) {
-			return nil
-		}
+	if existingClient, exists := clientMap[clientId]; exists && existingClient != client {
+		fmt.Println("⚠️ Cliente já existe, não substituindo:", clientId)
+		return
 	}
-	return clientMap[clientId]
+
+	clientMap[clientId] = client
+}
+
+func deleteClient(clientId string) {
+	clientsMutex.Lock()
+	defer clientsMutex.Unlock()
+	delete(clientMap, clientId)
+
 }
 func randomBetween(min, max int) int {
 	rand.Seed(time.Now().UnixNano()) // Garante que os números aleatórios mudem a cada execução
@@ -1411,7 +1460,7 @@ func main() {
 		client.AddEventHandler(func(evt interface{}) {
 			switch v := evt.(type) {
 			case *events.Connected:
-				clientMap[clientId] = client
+				setClient(clientId, client)
 				fmt.Println("🎉 -> CLIENTE CONECTADO", clientId)
 				data := map[string]any{
 					"evento":   "CLIENTE_CONECTADO",
@@ -1437,7 +1486,7 @@ func main() {
 					handleSeenMessage(v, clientId)
 				}
 			case *events.LoggedOut:
-				clientMap[clientId] = nil
+				deleteClient(clientId)
 				desconctarCliente(clientId)
 
 				fmt.Println("Cliente " + clientId + " deslogou do WhatsApp!")
@@ -1652,7 +1701,7 @@ func desconctarCliente(clientId string) bool {
 	sendEmailDisconnection(clientId)
 	client := getClient(clientId)
 	if client != nil {
-		clientMap[clientId] = nil
+		deleteClient(clientId)
 		client.Logout()
 	}
 	data := map[string]any{
