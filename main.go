@@ -424,7 +424,6 @@ func getMedia(evt *events.Message, clientId string) (string, string) {
 		if client == nil {
 			fmt.Println("cliente não disponível")
 			return "", ""
-
 		}
 	}
 	var mimeType string = ""
@@ -1018,7 +1017,9 @@ func main() {
 			// Reconecta sob demanda
 			client = tryConnecting(clientId)
 			if client == nil {
-				return fmt.Errorf("cliente não disponível")
+				return c.Status(500).JSON(fiber.Map{
+					"message": "Cliente não conectado",
+				})
 			}
 		}
 		if client == nil {
