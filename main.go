@@ -521,6 +521,14 @@ func removeString(slice []string, value string) []string {
 }
 func handleMessage(fullInfoMessage *events.Message, clientId string, client *whatsmeow.Client) bool {
 	log.Printf("------------------ %s Receiving Message ------------------------ \n\n", clientId)
+	if fullInfoMessage == nil {
+		log.Println("Mensagem recebida é nil")
+		return false
+	}
+	if client == nil {
+		log.Println("Cliente Whatsmeow é nil")
+		return false
+	}
 	var channel bool = fullInfoMessage.SourceWebMsg.GetBroadcast()
 	var statusMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "status")
 	var LocationMessage bool = fullInfoMessage.Message.LocationMessage != nil
