@@ -718,12 +718,11 @@ func autoConnection() {
 	for _, clientID := range clientIDs {
 		clientsMutex.Lock()
 		_, exists := clientMap[clientID]
-		clientsMutex.Unlock() // Libera imediatamente
+		clientsMutex.Unlock()
 
 		if !exists {
 			// Reconecta sem lock
 			newClient := tryConnecting(clientID)
-
 			clientsMutex.Lock()
 			if newClient != nil {
 				clientMap[clientID] = newClient
@@ -731,6 +730,7 @@ func autoConnection() {
 				removeClientDB(clientID, nil)
 			}
 			clientsMutex.Unlock()
+
 		}
 	}
 }
