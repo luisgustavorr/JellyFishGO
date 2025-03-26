@@ -1077,8 +1077,7 @@ func main() {
 	})
 	r.Post("/sendFiles", func(c *fiber.Ctx) error {
 		clientId := c.FormValue("clientId")
-		clientIdTeste := &clientId
-		log.Printf("------------------ %s Send Files Request %s ------------------------ \n\n", clientId, *clientIdTeste)
+		log.Printf("------------------ %s Send Files Request ------------------------ \n\n", clientId)
 		client := getClient(clientId)
 		if client == nil {
 			client = tryConnecting(clientId)
@@ -1186,7 +1185,7 @@ func main() {
 				leitorZip = zipReader
 			}
 			for i := 0; i < len(result); i++ {
-				log.Printf("------------------ %s Inside Go Func Inside FOR %s ------------------------ \n\n", clientId, *clientIdTeste)
+				log.Printf("------------------ %s Inside Go Func Inside FOR ------------------------ \n\n", clientId)
 
 				client := getClient(clientId)
 				if client == nil {
