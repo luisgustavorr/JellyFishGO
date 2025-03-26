@@ -53,7 +53,10 @@ import (
 )
 
 var json = jsoniter.ConfigFastest
-var clientMap = make(map[string]*whatsmeow.Client)
+var (
+	clientMap    = make(map[string]*whatsmeow.Client)
+	clientsMutex sync.Mutex // Mutex simples
+)
 var mapOficial, _ = loadConfigInicial("spacemid_luis:G4l01313@tcp(pro107.dnspro.com.br:3306)/spacemid_sistem_adm")
 var messagesToSend = make(map[string][]*waE2E.Message)
 var focusedMessagesKeys = []string{}
@@ -415,6 +418,15 @@ func getText(message *waE2E.Message) string {
 }
 func getMedia(evt *events.Message, clientId string) (string, string) {
 	client := getClient(clientId)
+	if client == nil {
+		// Reconecta sob demanda
+		client = tryConnecting(clientId)
+		if client == nil {
+			fmt.Println("cliente não disponível")
+			return "", ""
+
+		}
+	}
 	var mimeType string = ""
 	if imgMsg := evt.Message.GetImageMessage(); imgMsg != nil {
 		mimeType = imgMsg.GetMimetype()
@@ -678,45 +690,53 @@ func safePanic(arguments ...any) {
 	os.Exit(1)
 }
 func autoConnection() {
-	dir := "./clients_db" // Substitua pelo caminho da sua pasta
-	fmt.Println("---------RODANDO")
-	// Listar arquivos na pasta
+	dir := "./clients_db"
 	files, err := os.ReadDir(dir)
 	if err != nil {
-		fmt.Printf("Erro ao ler a pasta: %v", err)
+		log.Printf("Erro ao ler clientes: %v", err)
+		return
 	}
-	// Criar uma fatia para armazenar os nomes dos arquivos
-	var fileNames []string
 
-	// Iterar pelos arquivos e adicionar os nomes na fatia
+	// Fase 1: Coleta de IDs sem lock
+	var clientIDs []string
 	for _, file := range files {
-		// Adiciona o nome do arquivo se for um arquivo regular
 		if !file.IsDir() {
-			fileNames = append(fileNames, file.Name())
+			clientID := strings.TrimSuffix(file.Name(), ".db")
+			clientIDs = append(clientIDs, clientID)
 		}
 	}
 
-	for _, fileName := range fileNames {
-		cleanClientId := strings.Replace(fileName, ".db", "", -1)
-		fmt.Println(cleanClientId)
-		getClient(cleanClientId)
-		if clientMap[cleanClientId] == nil {
-			sendEmailDisconnection(cleanClientId)
-			removeClientDB(cleanClientId, nil)
+	// Fase 2: Processamento individual com lock curto
+	for _, clientID := range clientIDs {
+		clientsMutex.Lock()
+		_, exists := clientMap[clientID]
+		clientsMutex.Unlock() // Libera imediatamente
+
+		if !exists {
+			// Reconecta sem lock
+			newClient := tryConnecting(clientID)
+
+			clientsMutex.Lock()
+			if newClient != nil {
+				clientMap[clientID] = newClient
+			} else {
+				removeClientDB(clientID, nil)
+			}
+			clientsMutex.Unlock()
 		}
 	}
 }
-func tryConnecting(clientId string) bool {
+func tryConnecting(clientId string) *whatsmeow.Client {
 	dbLog := waLog.Stdout("Database", "INFO", true)
 	container, err := sqlstore.New("sqlite3", "file:./clients_db/"+clientId+".db?_foreign_keys=on", dbLog)
 	if err != nil {
 		fmt.Println(err)
-		return false
+		return nil
 	}
 	deviceStore, err := container.GetFirstDevice()
 	if err != nil {
 		fmt.Println("erro pegandoDevice", err)
-		return false
+		return nil
 	}
 	clientLog := waLog.Stdout("Client", "ERROR", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
@@ -724,7 +744,9 @@ func tryConnecting(clientId string) bool {
 	client.AddEventHandler(func(evt interface{}) {
 		switch v := evt.(type) {
 		case *events.Connected:
+			clientsMutex.Lock()
 			clientMap[clientId] = client
+			clientsMutex.Unlock()
 			fmt.Println("🎉 -> CLIENTE CONECTADO", clientId)
 		case *events.Receipt:
 			if strings.Contains(clientId, "chat") {
@@ -746,9 +768,11 @@ func tryConnecting(clientId string) bool {
 	})
 	if client.Store.ID == nil {
 		// removeClientDB(clientId, container)
-		return false
+		return nil
 	} else {
 		err = client.Connect()
+		clientsMutex.Lock()
+		defer clientsMutex.Unlock()
 		clientMap[clientId] = client
 		if strings.Contains(clientId, "chat") {
 			setStatus(client, "conectado", types.JID{})
@@ -756,7 +780,7 @@ func tryConnecting(clientId string) bool {
 		if err != nil {
 			fmt.Println("erro pegandoDevice", err)
 		}
-		return true
+		return client
 
 	}
 }
@@ -770,12 +794,12 @@ func removeClientDB(clientId string, container *sqlstore.Container) {
 	}
 }
 func getClient(clientId string) *whatsmeow.Client {
-	if clientMap[clientId] == nil {
-		tryConnecting(clientId)
-
-		time.Sleep(500)
+	clientsMutex.Lock()
+	defer clientsMutex.Unlock()
+	if client, ok := clientMap[clientId]; ok {
+		return client // Retorna existente
 	}
-	return clientMap[clientId]
+	return nil // Não tenta reconectar aqui
 }
 func randomBetween(min, max int) int {
 	rand.Seed(time.Now().UnixNano()) // Garante que os números aleatórios mudem a cada execução
@@ -809,9 +833,14 @@ func normalizeFileName(filename string) string {
 	return normalizedFileName
 }
 
-var seenMessagesQueue = NewQueue()
+var (
+	seenMessagesQueue      = NewQueue()
+	seenMessagesQueueMutex sync.Mutex
+)
 
 func sendSeenMessages(clientId string) {
+	seenMessagesQueueMutex.Lock()
+	defer seenMessagesQueueMutex.Unlock()
 	data := map[string]any{
 		"evento":   "MENSAGEM_LIDA",
 		"clientId": clientId,
@@ -832,6 +861,8 @@ func sendSeenMessages(clientId string) {
 	}
 }
 func addSeenMessageToQueue(message interface{}, clientId string) bool {
+	seenMessagesQueueMutex.Lock()
+	defer seenMessagesQueueMutex.Unlock()
 	if _, exists := seenMessagesQueue.messageBuffer[clientId]; !exists {
 		seenMessagesQueue.messageBuffer[clientId] = []interface{}{}
 	}
@@ -853,6 +884,7 @@ func addSeenMessageToQueue(message interface{}, clientId string) bool {
 	return true
 }
 func handleSeenMessage(event *events.Receipt, clientId string) {
+
 	if event.Type == "read" && !event.IsFromMe {
 		for i := 0; i < len(event.MessageIDs); i++ {
 			var seenMessage = make(map[string]interface{})
@@ -975,6 +1007,13 @@ func main() {
 		clientId := c.FormValue("clientId")
 		client := getClient(clientId)
 		if client == nil {
+			// Reconecta sob demanda
+			client = tryConnecting(clientId)
+			if client == nil {
+				return fmt.Errorf("cliente não disponível")
+			}
+		}
+		if client == nil {
 			return c.Status(500).JSON(fiber.Map{
 				"message": "Cliente não conectado",
 			})
@@ -988,6 +1027,13 @@ func main() {
 		messageID := c.FormValue("messageID")
 		receiverNumber := c.FormValue("receiverNumber")
 		client := getClient(clientId)
+		if client == nil {
+			// Reconecta sob demanda
+			client = tryConnecting(clientId)
+			if client == nil {
+				return fmt.Errorf("cliente não disponível")
+			}
+		}
 		if client == nil {
 			return c.Status(500).JSON(fiber.Map{
 				"message": "Cliente não conectado",
@@ -1014,9 +1060,16 @@ func main() {
 	r.Post("/destroySession", func(c *fiber.Ctx) error {
 		clientId := c.FormValue("clientId")
 		desconctarCliente(clientId)
-		// client := getClient(clientId)
+		//    client := getClient(clientId)
+		// if client == nil {
+		// 	// Reconecta sob demanda
+		// 	client = tryConnecting(clientId)
+		// 	if client == nil {
+		// 		return fmt.Errorf("cliente não disponível")
+		// 	}
+		// }
 		// client.Logout()
-		// clientMap[clientId] = nil
+		//
 		// tryConnecting(clientId)
 		// fmt.Println("Desconectando")
 		return c.Status(200).JSON(fiber.Map{
@@ -1030,6 +1083,13 @@ func main() {
 		clientId := c.FormValue("clientId")
 		log.Printf("------------------ %s Send Files Request ------------------------ \n\n", clientId)
 		client := getClient(clientId)
+		if client == nil {
+			// Reconecta sob demanda
+			client = tryConnecting(clientId)
+			if client == nil {
+				return fmt.Errorf("cliente não disponível")
+			}
+		}
 		if client == nil {
 			return c.Status(500).JSON(fiber.Map{
 				"message": "Cliente não conectado",
@@ -1106,7 +1166,7 @@ func main() {
 		clientIdCopy := clientId
 		resultCopy := result
 		documento_padraoCopy := documento_padrao
-		go func(clientId string, result []map[string]interface{}, documento_padrao *multipart.FileHeader) {
+		go func(clientId string, result []map[string]interface{}, documento_padrao *multipart.FileHeader, files *multipart.FileHeader) {
 			log.Printf("------------------ %s Inside Go Func------------------------ \n\n", clientId)
 
 			var leitorZip *zip.Reader = nil
@@ -1126,6 +1186,14 @@ func main() {
 			}
 			for i := 0; i < len(result); i++ {
 				client := getClient(clientId)
+				if client == nil {
+					// Reconecta sob demanda
+					client = tryConnecting(clientId)
+					if client == nil {
+						fmt.Println("⛔ -> Cliente não disponível")
+						return
+					}
+				}
 				if client == nil {
 					return
 				}
@@ -1345,7 +1413,7 @@ func main() {
 				}
 			}()
 
-		}(clientIdCopy, resultCopy, documento_padraoCopy)
+		}(clientIdCopy, resultCopy, documento_padraoCopy, files)
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Arquivo recebido e enviado no WhatsApp.",
 		})
@@ -1386,7 +1454,9 @@ func main() {
 		client.AddEventHandler(func(evt interface{}) {
 			switch v := evt.(type) {
 			case *events.Connected:
+				clientsMutex.Lock()
 				clientMap[clientId] = client
+				clientsMutex.Unlock()
 				fmt.Println("🎉 -> CLIENTE CONECTADO", clientId)
 				data := map[string]any{
 					"evento":   "CLIENTE_CONECTADO",
@@ -1412,7 +1482,7 @@ func main() {
 					handleSeenMessage(v, clientId)
 				}
 			case *events.LoggedOut:
-				clientMap[clientId] = nil
+
 				desconctarCliente(clientId)
 
 				fmt.Println("Cliente " + clientId + " deslogou do WhatsApp!")
@@ -1626,8 +1696,17 @@ func desconctarCliente(clientId string) bool {
 	fmt.Println("⛔ -> CLIENTE DESCONECTADO", clientId)
 	sendEmailDisconnection(clientId)
 	client := getClient(clientId)
+	if client == nil {
+		// Reconecta sob demanda
+		client = tryConnecting(clientId)
+		if client == nil {
+			fmt.Println("cliente não disponível")
+			return false
+		}
+	}
 	if client != nil {
-		clientMap[clientId] = nil
+		clientsMutex.Lock()
+		defer clientsMutex.Unlock()
 		client.Logout()
 	}
 	data := map[string]any{
