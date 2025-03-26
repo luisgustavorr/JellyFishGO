@@ -1037,7 +1037,6 @@ func main() {
 		receiverNumber := c.FormValue("receiverNumber")
 		client := getClient(clientId)
 		if client == nil {
-			// Reconecta sob demanda
 			client = tryConnecting(clientId)
 			if client == nil {
 				return fmt.Errorf("cliente não disponível")
@@ -1069,18 +1068,6 @@ func main() {
 	r.Post("/destroySession", func(c *fiber.Ctx) error {
 		clientId := c.FormValue("clientId")
 		desconctarCliente(clientId)
-		//    client := getClient(clientId)
-		// if client == nil {
-		// 	// Reconecta sob demanda
-		// 	client = tryConnecting(clientId)
-		// 	if client == nil {
-		// 		return fmt.Errorf("cliente não disponível")
-		// 	}
-		// }
-		// client.Logout()
-		//
-		// tryConnecting(clientId)
-		// fmt.Println("Desconectando")
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Cliente desconectado",
 		})
@@ -1090,10 +1077,10 @@ func main() {
 	})
 	r.Post("/sendFiles", func(c *fiber.Ctx) error {
 		clientId := c.FormValue("clientId")
-		log.Printf("------------------ %s Send Files Request ------------------------ \n\n", clientId)
+		clientIdTeste := &clientId
+		log.Printf("------------------ %s Send Files Request %s ------------------------ \n\n", clientId, *clientIdTeste)
 		client := getClient(clientId)
 		if client == nil {
-			// Reconecta sob demanda
 			client = tryConnecting(clientId)
 			if client == nil {
 				return fmt.Errorf("cliente não disponível")
@@ -1175,18 +1162,23 @@ func main() {
 		clientIdCopy := clientId
 		resultCopy := result
 		documento_padraoCopy := documento_padrao
-		go func(clientId string, result []map[string]interface{}, documento_padrao *multipart.FileHeader, files *multipart.FileHeader) {
+		log.Printf("ClientId antes da goroutine: %s", clientId)
+		go func(clientId string,
+			result []map[string]interface{},
+			documento_padrao *multipart.FileHeader,
+			files *multipart.FileHeader,
+			sendContact string, // Adicione
+			noTimeout string, // Adicione
+			dataProgramada string, // Adicione
+			infoObjects string) {
 			log.Printf("------------------ %s Inside Go Func------------------------ \n\n", clientId)
-
 			var leitorZip *zip.Reader = nil
-
 			if files != nil {
 				zipFile, err := files.Open()
 				if err != nil {
 					log.Fatal("Erro abrindo ZIP", err)
 				}
 				defer zipFile.Close()
-				// Lendo o arquivo ZIP
 				zipReader, err := zip.NewReader(zipFile, files.Size)
 				if err != nil {
 					log.Fatal(err)
@@ -1194,6 +1186,8 @@ func main() {
 				leitorZip = zipReader
 			}
 			for i := 0; i < len(result); i++ {
+				log.Printf("------------------ %s Inside Go Func Inside FOR %s ------------------------ \n\n", clientId, *clientIdTeste)
+
 				client := getClient(clientId)
 				if client == nil {
 					// Reconecta sob demanda
@@ -1206,7 +1200,7 @@ func main() {
 				if client == nil {
 					return
 				}
-				fmt.Println("Cliente recuperado")
+				fmt.Println("Cliente recuperado :", clientId)
 				item := result[i]
 				nextItem := item
 				number := "+" + item["number"].(string)
@@ -1421,8 +1415,15 @@ func main() {
 					}
 				}
 			}()
-
-		}(clientIdCopy, resultCopy, documento_padraoCopy, files)
+		}(clientIdCopy,
+			resultCopy,
+			documento_padraoCopy,
+			files,
+			sendContact,    // Passe como argumento
+			noTimeout,      // Passe como argumento
+			dataProgramada, // Passe como argumento
+			infoObjects)
+		log.Printf("ClientId dentro da goroutine: %s", clientId)
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Arquivo recebido e enviado no WhatsApp.",
 		})
