@@ -1186,7 +1186,6 @@ func main() {
 			}
 			for i := 0; i < len(result); i++ {
 				log.Printf("------------------ %s Inside Go Func Inside FOR ------------------------ \n\n", clientId)
-
 				client := getClient(clientId)
 				if client == nil {
 					// Reconecta sob demanda
@@ -1438,12 +1437,15 @@ func main() {
 		} else if strings.Contains(clientId, "_shark") {
 			store.DeviceProps = &waCompanionReg.DeviceProps{Os: proto.String("Shark Business")}
 		}
+		clientsMutex.Lock()
 		if clientMap[clientId] != nil {
+			clientsMutex.Unlock() // Libera o mutex antes de retornar a resposta
 			return c.Status(200).JSON(fiber.Map{
 				"message": "Cliente já autenticado",
 			})
-
 		}
+		clientsMutex.Unlock() // Libera o mutex após verificar o clientId
+
 		qrCode := c.FormValue("qrCode") == "true"
 		// Obtenha o dispositivo
 		dbLog := waLog.Stdout("Database", "INFO", true)
@@ -1456,10 +1458,10 @@ func main() {
 		if err != nil {
 			fmt.Println(err)
 		}
-		// Crie o cliente WhatsApp
 		clientLog := waLog.Stdout("Client", "ERROR", true)
 		client := whatsmeow.NewClient(deviceStore, clientLog)
 		client.EnableAutoReconnect = true
+
 		client.AddEventHandler(func(evt interface{}) {
 			switch v := evt.(type) {
 			case *events.Connected:
@@ -1723,6 +1725,7 @@ func desconctarCliente(clientId string) bool {
 		"clientId": clientId,
 		"data":     "CLIENTE_DESCONECTADO",
 	}
+	delete(clientMap, clientId)
 	lastIndex := strings.LastIndex(clientId, "_")
 	sufixo := clientId[lastIndex+1:]
 	baseURL := mapOficial[sufixo]
