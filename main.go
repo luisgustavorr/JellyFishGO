@@ -628,8 +628,11 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		if groupImage != nil {
 			mensagem["imagem_grupo"] = groupImage.URL
 		}
-		mensagem["nome_grupo"] = groupInfo.GroupName.Name
-		mensagem["id_grupo"] = strings.Replace(fullInfoMessage.Info.Chat.String(), "@g.us", "", -1)
+		if groupInfo != nil {
+			mensagem["nome_grupo"] = groupInfo.GroupName.Name
+			mensagem["id_grupo"] = strings.Replace(fullInfoMessage.Info.Chat.String(), "@g.us", "", -1)
+
+		}
 	}
 	var focus = getMessageFocus(focusedMessagesKeys, id_message)
 	if focus != "" {
