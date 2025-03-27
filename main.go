@@ -1158,9 +1158,6 @@ func main() {
 			})
 		}
 		// Exibindo o resultado
-		clientIdCopy := clientId
-		resultCopy := result
-		documento_padraoCopy := documento_padrao
 		log.Printf("ClientId antes da goroutine: %s", clientId)
 		go func(clientId string,
 			result []map[string]interface{},
@@ -1414,9 +1411,9 @@ func main() {
 					}
 				}
 			}()
-		}(clientIdCopy,
-			resultCopy,
-			documento_padraoCopy,
+		}(clientId,
+			result,
+			documento_padrao,
 			files,
 			sendContact,    // Passe como argumento
 			noTimeout,      // Passe como argumento
