@@ -1161,6 +1161,7 @@ func main() {
 			})
 		}
 		// Exibindo o resultado
+		// clientIdCopy := clientId
 		log.Printf("ClientId antes da goroutine: %s", clientId)
 		go func(clientId string,
 			result []map[string]interface{},
@@ -1170,6 +1171,7 @@ func main() {
 			noTimeout string, // Adicione
 			dataProgramada string, // Adicione
 			infoObjects string) {
+			fmt.Println(&clientId)
 			log.Printf("------------------ %s Inside Go Func------------------------ \n\n", clientId)
 			var leitorZip *zip.Reader = nil
 			if files != nil {
@@ -1185,6 +1187,8 @@ func main() {
 				leitorZip = zipReader
 			}
 			for i := 0; i < len(result); i++ {
+				fmt.Println(&clientId)
+
 				log.Printf("------------------ %s Inside Go Func Inside FOR ------------------------ \n\n", clientId)
 				client := getClient(clientId)
 				if client == nil {
@@ -1237,6 +1241,8 @@ func main() {
 				validNumber, err := client.IsOnWhatsApp(numbers)
 				if err != nil {
 					fmt.Println(err, "ERRO ISONWHATSAPP")
+					fmt.Println("⛔ -> Numero inválido. ClientId: ", clientId, " | Numero: ", number, " | Mensagem :", text)
+
 				}
 
 				var JID types.JID = types.JID{}
@@ -1244,6 +1250,8 @@ func main() {
 					JID = types.JID{User: strings.Replace(id_grupo, "@g.us", "", -1), Server: types.GroupServer}
 				} else {
 					if len(validNumber) == 0 {
+						fmt.Println("⛔ -> Numero inválido. ClientId: ", clientId, " | Numero: ", number, " | Mensagem :", text)
+
 						continue
 					}
 					response := validNumber[0] // Acessa o primeiro item da slicet
