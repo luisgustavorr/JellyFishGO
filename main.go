@@ -1241,7 +1241,7 @@ func main() {
 				validNumber, err := client.IsOnWhatsApp(numbers)
 				if err != nil {
 					fmt.Println(err, "ERRO ISONWHATSAPP")
-					fmt.Println("⛔ -> Numero inválido. ClientId: ", clientId, " | Numero: ", number, " | Mensagem :", text)
+					fmt.Println("⛔ -> Numero inválido Erro. ClientId: ", clientId, " | Numero: ", number, " | Mensagem :", text)
 
 				}
 
@@ -1258,7 +1258,7 @@ func main() {
 					JID = response.JID
 					IsIn := response.IsIn
 					if !IsIn {
-						fmt.Println("⛔ -> Numero inválido. ClientId: ", clientId, " | Numero: ", number, " | Mensagem :", text)
+						fmt.Println("⛔ -> Numero not In WhatsApp. ClientId: ", clientId, " | Numero: ", number, " | Mensagem :", text)
 						continue
 					}
 				}
