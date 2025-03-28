@@ -1258,6 +1258,7 @@ func main() {
 					JID = response.JID
 					IsIn := response.IsIn
 					if !IsIn {
+						fmt.Println("⛔ -> Numero inválido. ClientId: ", clientId, " | Numero: ", number, " | Mensagem :", text)
 						continue
 					}
 				}
