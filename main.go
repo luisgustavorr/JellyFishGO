@@ -632,7 +632,6 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		}
 		mensagem["id_grupo"] = strings.Replace(fullInfoMessage.Info.Chat.String(), "@g.us", "", -1)
 
-		fmt.Println(mensagem)
 	}
 	var focus = getMessageFocus(focusedMessagesKeys, id_message)
 	if focus != "" {
