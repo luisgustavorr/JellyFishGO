@@ -519,7 +519,6 @@ func removeString(slice []string, value string) []string {
 	return filtered
 }
 func handleMessage(fullInfoMessage *events.Message, clientId string, client *whatsmeow.Client) bool {
-	log.Printf("------------------ %s Receiving Message ------------------------ \n\n", clientId)
 	if fullInfoMessage == nil {
 		log.Println("Mensagem recebida é nil")
 		return false
@@ -630,9 +629,10 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		}
 		if groupInfo != nil {
 			mensagem["nome_grupo"] = groupInfo.GroupName.Name
-			mensagem["id_grupo"] = strings.Replace(fullInfoMessage.Info.Chat.String(), "@g.us", "", -1)
-
 		}
+		mensagem["id_grupo"] = strings.Replace(fullInfoMessage.Info.Chat.String(), "@g.us", "", -1)
+
+		fmt.Println(mensagem)
 	}
 	var focus = getMessageFocus(focusedMessagesKeys, id_message)
 	if focus != "" {
@@ -651,6 +651,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	objetoMensagens := map[string]interface{}{
 		"mensagem": mensagem,
 	}
+	log.Printf("------------------ %s Receiving Message Event | By Group : %v ------------------------ \n\n", clientId, groupMessage)
 	if fromMe {
 		if media != "" || text != "" {
 			listaMensagens := []map[string]interface{}{}
@@ -685,7 +686,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			}
 			messagesToSend[clientId] = append(messagesToSend[clientId], message)
 			messagesQueue.AddMessage(clientId, objetoMensagens, senderNumber)
-			fmt.Println("📩 -> Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text)
+			fmt.Println("📩 -> Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text, " | By Group:", groupMessage)
 			fmt.Println("Mensagens registradas : ", len(sentMessages)+1)
 			sentMessages[uniqueMessageID] = true
 			pendingSync <- id_message + "_" + senderNumber + "_" + clientId
@@ -1017,7 +1018,6 @@ func main() {
 		clientId := c.FormValue("clientId")
 		client := getClient(clientId)
 		if client == nil {
-			// Reconecta sob demanda
 			client = tryConnecting(clientId)
 			if client == nil {
 				return c.Status(500).JSON(fiber.Map{
@@ -1119,7 +1119,6 @@ func main() {
 			if dataProgramada != "" {
 				savePath = normalizeFileName("./arquivos_disparos_programados/padrao_" + dataProgramada + clientId + documento_padrao.Filename)
 				documento_padrao_filePath = savePath
-
 			}
 			// Salvar o arquivo no caminho especificado
 			if err := c.SaveFile(documento_padrao, savePath); err != nil {
@@ -1137,7 +1136,6 @@ func main() {
 		}
 		var files *multipart.FileHeader = nil
 		files, _ = c.FormFile("file")
-
 		var result []map[string]interface{}
 		// Deserializando o JSON para o map
 		err = json.Unmarshal([]byte(infoObjects), &result)
@@ -1155,7 +1153,6 @@ func main() {
 			}
 
 			addTarefaProgramadaDB(clientId, dataProgramada, infoObjects, documento_padrao_filePath, files_filePath)
-
 			return c.Status(200).JSON(fiber.Map{
 				"message": "Disparo agendado com sucesso",
 			})
@@ -1188,7 +1185,6 @@ func main() {
 			}
 			for i := 0; i < len(result); i++ {
 				fmt.Println(&clientId)
-
 				log.Printf("------------------ %s Inside Go Func Inside FOR ------------------------ \n\n", clientId)
 				client := getClient(clientId)
 				if client == nil {
