@@ -1201,6 +1201,9 @@ func main() {
 				clientIdByMessageIdMutex.Lock()
 				var currentClientID = clientIdByMessageId[uniqueMessageID]
 				clientIdByMessageIdMutex.Unlock()
+				if currentClientID == "" {
+					continue
+				}
 				log.Printf("------------------ %s Inside Go Func Inside FOR ------------------------ \n\n", currentClientID)
 				client := getClient(currentClientID)
 				if client == nil {
