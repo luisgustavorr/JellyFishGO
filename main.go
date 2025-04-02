@@ -1202,6 +1202,7 @@ func main() {
 				var currentClientID = clientIdByMessageId[uniqueMessageID]
 				clientIdByMessageIdMutex.Unlock()
 				if currentClientID == "" {
+					fmt.Printf("---------- PULANDO MENSAGEM COM CLIENTE CORROMPIDO : '%s' ----------", currentClientID)
 					continue
 				}
 				log.Printf("------------------ %s Inside Go Func Inside FOR ------------------------ \n\n", currentClientID)
