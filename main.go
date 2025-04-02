@@ -35,6 +35,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/pprof"
+	"github.com/google/uuid"
 	"github.com/h2non/filetype"
 	"github.com/joho/godotenv"
 	jsoniter "github.com/json-iterator/go"
@@ -45,6 +46,7 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
+
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
@@ -62,6 +64,10 @@ var messagesToSend = make(map[string][]*waE2E.Message)
 var focusedMessagesKeys = []string{}
 var processedMessages = make(map[string]bool)
 var _ = godotenv.Load()
+var (
+	clientIdByMessageId      = make(map[string]string)
+	clientIdByMessageIdMutex sync.Mutex
+)
 var MODO_DESENVOLVIMENTO = os.Getenv("MODO_DESENVOLVIMENTO")
 var desenvolvilemto = MODO_DESENVOLVIMENTO == "1"
 
@@ -1159,7 +1165,7 @@ func main() {
 		// Exibindo o resultado
 		// clientIdCopy := clientId
 		log.Printf("ClientId antes da goroutine: %s", clientId)
-		go func(clientId string,
+		go func(clientIdLocal string,
 			result []map[string]interface{},
 			documento_padrao *multipart.FileHeader,
 			files *multipart.FileHeader,
@@ -1167,8 +1173,17 @@ func main() {
 			noTimeout string, // Adicione
 			dataProgramada string, // Adicione
 			infoObjects string) {
-			fmt.Println(&clientId)
-			log.Printf("------------------ %s Inside Go Func------------------------ \n\n", clientId)
+			var uniqueMessageID = clientIdLocal + "-!_!-" + uuid.New().String()
+			clientIdByMessageIdMutex.Lock()
+			clientIdByMessageId[uniqueMessageID] = clientIdLocal
+			clientIdByMessageIdMutex.Unlock()
+			defer func() {
+				clientIdByMessageIdMutex.Lock()
+				delete(clientIdByMessageId, uniqueMessageID)
+				clientIdByMessageIdMutex.Unlock()
+			}()
+			fmt.Println(&clientIdLocal, uniqueMessageID)
+			log.Printf("------------------ %s Inside Go Func------------------------ \n\n", clientIdLocal)
 			var leitorZip *zip.Reader = nil
 			if files != nil {
 				zipFile, err := files.Open()
@@ -1183,12 +1198,14 @@ func main() {
 				leitorZip = zipReader
 			}
 			for i := 0; i < len(result); i++ {
-				fmt.Println(&clientId)
-				log.Printf("------------------ %s Inside Go Func Inside FOR ------------------------ \n\n", clientId)
-				client := getClient(clientId)
+				clientIdByMessageIdMutex.Lock()
+				var currentClientID = clientIdByMessageId[uniqueMessageID]
+				clientIdByMessageIdMutex.Unlock()
+				log.Printf("------------------ %s Inside Go Func Inside FOR ------------------------ \n\n", currentClientID)
+				client := getClient(currentClientID)
 				if client == nil {
 					// Reconecta sob demanda
-					client = tryConnecting(clientId)
+					client = tryConnecting(currentClientID)
 					if client == nil {
 						fmt.Println("⛔ -> Cliente não disponível")
 						return
@@ -1197,7 +1214,7 @@ func main() {
 				if client == nil {
 					return
 				}
-				fmt.Println("Cliente recuperado :", clientId)
+				fmt.Println("Cliente recuperado :", currentClientID)
 				item := result[i]
 				nextItem := item
 				number := "+" + item["number"].(string)
@@ -1236,7 +1253,7 @@ func main() {
 				validNumber, err := client.IsOnWhatsApp(numbers)
 				if err != nil {
 					fmt.Println(err, "ERRO ISONWHATSAPP")
-					fmt.Println("⛔ -> Numero inválido Erro. ClientId: ", clientId, " | Numero: ", number, " | Mensagem :", text)
+					fmt.Println("⛔ -> Numero inválido Erro. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text)
 
 				}
 
@@ -1245,7 +1262,7 @@ func main() {
 					JID = types.JID{User: strings.Replace(id_grupo, "@g.us", "", -1), Server: types.GroupServer}
 				} else {
 					if len(validNumber) == 0 {
-						fmt.Println("⛔ -> Numero inválido. ClientId: ", clientId, " | Numero: ", number, " | Mensagem :", text)
+						fmt.Println("⛔ -> Numero inválido. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text)
 
 						continue
 					}
@@ -1253,7 +1270,7 @@ func main() {
 					JID = response.JID
 					IsIn := response.IsIn
 					if !IsIn {
-						fmt.Println("⛔ -> Numero not In WhatsApp. ClientId: ", clientId, " | Numero: ", number, " | Mensagem :", text)
+						fmt.Println("⛔ -> Numero not In WhatsApp. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text)
 						continue
 					}
 				}
@@ -1294,7 +1311,7 @@ func main() {
 						if strings.Contains(arquivo.Name, "documento_"+idImage) {
 							// Criar um arquivo local para salvar
 							fileName := strings.Replace(arquivo.Name, "documento_"+idImage+"_", "", -1)
-							destFile, err := os.Create("./uploads/" + clientId + fileName)
+							destFile, err := os.Create("./uploads/" + currentClientID + fileName)
 							if err != nil {
 								fmt.Printf("erro ao criar arquivo: %v", err)
 							}
@@ -1315,7 +1332,7 @@ func main() {
 							if documento_padrao != nil {
 								uniqueFileText = ""
 							}
-							tempMessage := prepararMensagemArquivo(uniqueFileText, message, "./uploads/"+clientId+fileName, client, clientId)
+							tempMessage := prepararMensagemArquivo(uniqueFileText, message, "./uploads/"+clientId+fileName, client, currentClientID)
 							if documento_padrao != nil {
 								client.SendMessage(context.Background(), JID, tempMessage)
 							} else {
@@ -1325,7 +1342,7 @@ func main() {
 					}
 				}
 				if documento_padrao != nil {
-					message = prepararMensagemArquivo(text, message, "./uploads/"+clientId+documento_padrao.Filename, client, clientId)
+					message = prepararMensagemArquivo(text, message, "./uploads/"+currentClientID+documento_padrao.Filename, client, currentClientID)
 				}
 				if quotedMessage != nil {
 					messageID, ok := quotedMessage["messageID"].(string)
@@ -1372,7 +1389,7 @@ func main() {
 				if err != nil {
 					fmt.Println("Erro ao enviar mensagem", err)
 				}
-				fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", retornoEnvio.ID, clientId, text, number)
+				fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", retornoEnvio.ID, currentClientID, text, number)
 
 				if focus != "" {
 					if focusedMessagesKeys == nil {
@@ -1383,15 +1400,15 @@ func main() {
 				if idMensagem != "" {
 					data := map[string]any{
 						"evento":   "MENSAGEM_ENVIADA",
-						"clientId": clientId,
+						"clientId": currentClientID,
 						"data": map[string]string{
 							"newID":  retornoEnvio.ID,
 							"oldID":  idMensagem,
 							"sender": strings.Replace(number, "+", "", -1),
 						},
 					}
-					lastIndex := strings.LastIndex(clientId, "_")
-					sufixo := clientId[lastIndex+1:]
+					lastIndex := strings.LastIndex(currentClientID, "_")
+					sufixo := currentClientID[lastIndex+1:]
 					baseURL := strings.Split(mapOficial[sufixo], "chatbot")[0]
 					if strings.Contains(baseURL, "disparo") {
 						baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
@@ -1407,6 +1424,11 @@ func main() {
 					tempoEsperado = tempoEsperado + float32(utf8.RuneCountInString(nextItemText))*0.03
 					fmt.Println("⏳ Tempo esperado para enviar a próxima mensagem:", tempoEsperado, "segundos...")
 					time.Sleep(time.Duration(tempoEsperado) * time.Second)
+				} else if i+1 == len(result) {
+					fmt.Printf("-------------- DISPARO PARA  %s FINALIZADO ---------------\n", currentClientID)
+					clientIdByMessageIdMutex.Lock()
+					delete(clientIdByMessageId, uniqueMessageID) // Use a chave correta!
+					clientIdByMessageIdMutex.Unlock()
 				}
 			}
 			defer func() {
