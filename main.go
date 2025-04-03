@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"unicode"
 
@@ -35,7 +36,6 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/pprof"
-	"github.com/google/uuid"
 	"github.com/h2non/filetype"
 	"github.com/joho/godotenv"
 	jsoniter "github.com/json-iterator/go"
@@ -51,6 +51,7 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	_ "golang.org/x/image/webp" // Importa suporte para WebP
+	"golang.org/x/time/rate"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -743,62 +744,66 @@ func autoConnection() {
 	}
 }
 func tryConnecting(clientId string) *whatsmeow.Client {
+	// Cópia local para uso em handlers assíncronos
+	localClientId := clientId
+
+	// Configuração inicial do cliente
 	dbLog := waLog.Stdout("Database", "INFO", true)
-	container, err := sqlstore.New("sqlite3", "file:./clients_db/"+clientId+".db?_foreign_keys=on", dbLog)
+	container, err := sqlstore.New("sqlite3", "file:./clients_db/"+localClientId+".db?_foreign_keys=on", dbLog)
 	if err != nil {
-		fmt.Println(err)
+		log.Printf("Erro ao criar container SQL: %v", err)
 		return nil
 	}
+
 	deviceStore, err := container.GetFirstDevice()
 	if err != nil {
-		fmt.Println("erro pegandoDevice", err)
+		log.Printf("Erro ao obter dispositivo: %v", err)
 		return nil
 	}
+
 	clientLog := waLog.Stdout("Client", "ERROR", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 	client.EnableAutoReconnect = true
+
+	// Handler de eventos com cópia local do clientId
 	client.AddEventHandler(func(evt interface{}) {
 		switch v := evt.(type) {
 		case *events.Connected:
 			clientsMutex.Lock()
-			clientMap[clientId] = client
+			clientMap[localClientId] = client
 			clientsMutex.Unlock()
-			fmt.Println("🎉 -> CLIENTE CONECTADO", clientId)
-		case *events.Receipt:
-			if strings.Contains(clientId, "chat") {
-				handleSeenMessage(v, clientId)
-			}
-		case *events.Disconnected:
-			fmt.Println("Cliente " + clientId + "desconectou do WhatsApp!")
-		case *events.LoggedOut:
+			log.Printf("🎉 -> CLIENTE CONECTADO %s", clientId)
 
-			desconctarCliente(clientId)
-			fmt.Println("Cliente " + clientId + " deslogou do WhatsApp!")
+		case *events.Receipt:
+			if strings.Contains(localClientId, "chat") {
+				handleSeenMessage(v, localClientId)
+			}
+
+		case *events.Disconnected:
+			log.Printf("🔄 -> RECONECTANDO CLIENTE %s", clientId)
+		case *events.LoggedOut:
+			desconctarCliente(localClientId)
+			log.Printf("Cliente %s fez logout", localClientId)
 
 		case *events.Message:
-			if strings.Contains(clientId, "chat") {
-				handleMessage(v, clientId, client)
-
+			if strings.Contains(localClientId, "chat") {
+				handleMessage(v, localClientId, client)
 			}
 		}
 	})
-	if client.Store.ID == nil {
-		// removeClientDB(clientId, container)
-		return nil
-	} else {
-		err = client.Connect()
-		clientsMutex.Lock()
-		defer clientsMutex.Unlock()
-		clientMap[clientId] = client
-		if strings.Contains(clientId, "chat") {
-			setStatus(client, "conectado", types.JID{})
-		}
-		if err != nil {
-			fmt.Println("erro pegandoDevice", err)
-		}
-		return client
 
+	// Conexão inicial sem bloquear o mutex
+	if err := client.Connect(); err != nil {
+		log.Printf("Falha na conexão inicial do cliente %s: %v", localClientId, err)
+		return nil
 	}
+
+	// Atualização segura do mapa após conexão
+	clientsMutex.Lock()
+	clientMap[localClientId] = client
+	clientsMutex.Unlock()
+
+	return client
 }
 func removeClientDB(clientId string, container *sqlstore.Container) {
 	if container != nil {
@@ -812,10 +817,7 @@ func removeClientDB(clientId string, container *sqlstore.Container) {
 func getClient(clientId string) *whatsmeow.Client {
 	clientsMutex.Lock()
 	defer clientsMutex.Unlock()
-	if client, ok := clientMap[clientId]; ok {
-		return client // Retorna existente
-	}
-	return nil // Não tenta reconectar aqui
+	return clientMap[clientId] // Retorna nil se não existir
 }
 func randomBetween(min, max int) int {
 	rand.Seed(time.Now().UnixNano()) // Garante que os números aleatórios mudem a cada execução
@@ -973,6 +975,351 @@ func loadMessagesReceiveds() {
 		}
 
 	}
+}
+
+type sendMessageInfo struct {
+	clientIdLocal    string
+	result           []map[string]interface{}
+	documento_padrao *multipart.FileHeader
+	files            *multipart.FileHeader
+	sendContact      string
+	noTimeout        string
+	dataProgramada   string
+	infoObjects      string
+}
+type singleMessageInfo struct {
+	client      *whatsmeow.Client
+	clientId    string
+	context     context.Context
+	text        string
+	idMensagem  string
+	focus       string
+	number      string
+	JID         types.JID
+	messageInfo *waE2E.Message
+	Attempts    int32
+	LastError   error
+}
+
+var activeClients sync.Map
+
+func registrarCliente(clientID string) {
+	activeClients.Store(clientID, time.Now())
+}
+
+func clienteAtivo(clientID string) bool {
+	_, ok := activeClients.Load(clientID)
+	return ok
+}
+func processarGrupoMensagens(sendInfo sendMessageInfo) {
+	result := sendInfo.result
+	files := sendInfo.files
+	documento_padrao := sendInfo.documento_padrao
+	currentClientID := sendInfo.clientIdLocal
+	sendContact := sendInfo.sendContact
+	workers := make(chan struct{}, 10)
+	limiter := rate.NewLimiter(rate.Every(2*time.Second), 1)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	counter := 0
+	var leitorZip *zip.Reader = nil
+	if files != nil {
+		zipFile, err := files.Open()
+		if err != nil {
+			log.Fatal("Erro abrindo ZIP", err)
+		}
+		defer zipFile.Close()
+		zipReader, err := zip.NewReader(zipFile, files.Size)
+		if err != nil {
+			log.Fatal(err)
+		}
+		leitorZip = zipReader
+	}
+
+	for i := range result {
+		wg.Add(1)
+		workers <- struct{}{}
+		go func(index int) {
+			defer func() {
+				<-workers
+				wg.Done()
+			}()
+			mu.Lock()
+			currentCount := counter
+			counter++
+			mu.Unlock()
+			totalDelay := time.Duration(randomBetween(30, 45)*currentCount) * time.Second
+			limiter.Wait(context.Background())
+			fmt.Println("⏳ Tempo esperado para enviar a próxima mensagem:", totalDelay, "segundos...", i)
+			time.Sleep(totalDelay) //-DESCOMENTAR
+
+			log.Printf("------------------ %s Inside Go Func Inside FOR ------------------------ \n\n", currentClientID)
+			client := getClient(currentClientID)
+			if client == nil {
+				// Reconecta sob demanda
+				client = tryConnecting(currentClientID)
+				if client == nil {
+					fmt.Println("⛔ -> Cliente não disponível")
+					return
+				}
+			}
+			if client == nil {
+				return
+			}
+			msg := singleMessageInfo{
+				clientId:    currentClientID,
+				client:      client,
+				context:     context.Background(),
+				messageInfo: nil,
+				Attempts:    0,
+				LastError:   nil,
+			}
+			fmt.Println("Cliente recuperado :", currentClientID)
+			item := result[i]
+
+			number := "+" + item["number"].(string)
+
+			var idImage string
+			switch v := item["id_image"].(type) {
+			case string:
+				idImage = v
+			case int, int64, float64:
+				idImage = fmt.Sprintf("%v", v) // Converte para string
+			default:
+				idImage = "UNDEFINED"
+			}
+
+			focus, _ := item["focus"].(string)
+			quotedMessage, _ := item["quotedMessage"].(map[string]interface{})
+			id_grupo, _ := item["id_grupo"].(string)
+			paymentMessage, _ := item["paymentMessage"].(map[string]interface{})
+			editedIDMessage, ok := item["editedIDMessage"].(string)
+			if !ok {
+				// Defina o valor padrão ou apenas ignore a chave
+				editedIDMessage = "" // ou outro valor padrão
+			}
+			idMensagem, ok := item["idMensagem"].(string)
+			if !ok {
+				// Defina o valor padrão ou apenas ignore a chave
+				idMensagem = "" // ou outro valor padrão
+			}
+			text, ok := item["text"].(string)
+			if !ok {
+				text = ""
+			}
+
+			numbers := []string{number}
+			validNumber, err := client.IsOnWhatsApp(numbers)
+			if err != nil {
+				fmt.Println(err, "ERRO ISONWHATSAPP")
+				fmt.Println("⛔ -> Numero inválido Erro. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text)
+
+			}
+
+			var JID types.JID = types.JID{}
+			if id_grupo != "" {
+				JID = types.JID{User: strings.Replace(id_grupo, "@g.us", "", -1), Server: types.GroupServer}
+			} else {
+				if len(validNumber) == 0 {
+					fmt.Println("⛔ -> Numero inválido. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text)
+					return
+				}
+				response := validNumber[0] // Acessa o primeiro item da slicet
+				JID = response.JID
+				IsIn := response.IsIn
+				if !IsIn {
+					fmt.Println("⛔ -> Numero not In WhatsApp. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text)
+					return
+				}
+			}
+			msg.focus = focus
+			msg.idMensagem = idMensagem
+			msg.number = number
+			msg.text = text
+			msg.JID = JID
+
+			setStatus(client, "digitando", JID)
+			message := &waE2E.Message{Conversation: &text}
+			if sendContact != "" {
+				var sendContactMap map[string]string
+				// Deserializando o JSON corretamente para o map
+				err = json.Unmarshal([]byte(sendContact), &sendContactMap)
+				if err != nil {
+					fmt.Println("Erro ao desserializar JSON:", err)
+					return
+				}
+				validNumber, err := client.IsOnWhatsApp([]string{sendContactMap["contato"]})
+				if err != nil {
+					safePanic(err, "ERRO IS ONWHATSAPP")
+
+				}
+				response := validNumber[0]
+				cell := response.JID.User
+				formatedNumber := formatPhoneNumber(cell)
+				if formatedNumber != "" {
+					contactMessage := &waE2E.Message{
+						ContactMessage: &waE2E.ContactMessage{
+							DisplayName: proto.String(sendContactMap["nome"]),
+							Vcard:       proto.String("BEGIN:VCARD\nVERSION:3.0\nN:;" + sendContactMap["nome"] + ";;;\nFN:" + sendContactMap["nome"] + "\nitem1.TEL;waid=" + cell + ":" + formatedNumber + "\nitem1.X-ABLabel:Celular\nEND:VCARD"),
+						}}
+					msg.messageInfo = contactMessage
+					processarMensagem(msg)
+					// client.SendMessage(context.Background(), JID, contactMessage)
+				} else {
+					fmt.Println("FORMATADO ->", err)
+				}
+			}
+			if text == "" {
+				return
+			}
+			if leitorZip != nil {
+				for _, arquivo := range leitorZip.File {
+					if strings.Contains(arquivo.Name, "documento_"+idImage) {
+						// Criar um arquivo local para salvar
+						fileName := strings.Replace(arquivo.Name, "documento_"+idImage+"_", "", -1)
+						destFile, err := os.Create("./uploads/" + currentClientID + fileName)
+						if err != nil {
+							fmt.Printf("erro ao criar arquivo: %v", err)
+						}
+						defer destFile.Close()
+
+						// Abrir o arquivo do ZIP
+						zipFileReader, err := arquivo.Open()
+						if err != nil {
+							fmt.Printf("erro ao abrir arquivo do zip: %v", err)
+						}
+						defer zipFileReader.Close()
+						// Copiar o conteúdo do arquivo do ZIP para o arquivo local
+						_, err = io.Copy(destFile, zipFileReader)
+						if err != nil {
+							fmt.Printf("erro ao copiar conteúdo para o arquivo: %v", err)
+						}
+						uniqueFileText := text
+						if documento_padrao != nil {
+							uniqueFileText = ""
+						}
+						tempMessage := prepararMensagemArquivo(uniqueFileText, message, "./uploads/"+currentClientID+fileName, client, currentClientID)
+						if documento_padrao != nil {
+							msg.messageInfo = tempMessage
+							processarMensagem(msg)
+						} else {
+							message = tempMessage
+						}
+					}
+				}
+			}
+			if documento_padrao != nil {
+				message = prepararMensagemArquivo(text, message, "./uploads/"+currentClientID+documento_padrao.Filename, client, currentClientID)
+			}
+			if quotedMessage != nil {
+				messageID, ok := quotedMessage["messageID"].(string)
+				if !ok {
+					log.Println("messageID não é uma string.")
+				}
+				sender, ok := quotedMessage["sender"].(string)
+				if !ok {
+					log.Println("sender não é uma string.")
+				}
+				messageQuoted, ok := quotedMessage["messageQuoted"].(string)
+				if !ok {
+					log.Println("messageQuoted não é uma string.")
+				}
+				validNumber, err := client.IsOnWhatsApp([]string{sender})
+				if err != nil {
+					safePanic(err, "ERRO IS ONWHATSAPP")
+				}
+				response := validNumber[0]
+				senderJID := response.JID
+				var msg_quote *waE2E.Message = &waE2E.Message{
+					ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+						Text: proto.String(messageQuoted),
+					},
+				}
+				message.Conversation = nil
+				message.ExtendedTextMessage = &waE2E.ExtendedTextMessage{
+					Text: proto.String(text),
+					ContextInfo: &waE2E.ContextInfo{
+						StanzaID:      &messageID,
+						Participant:   proto.String(senderJID.String()),
+						QuotedMessage: msg_quote,
+					},
+				}
+			}
+			if editedIDMessage != "" {
+				message = client.BuildEdit(JID, editedIDMessage, message)
+			}
+			if paymentMessage != nil {
+			}
+			msg.messageInfo = message
+			processarMensagem(msg)
+		}(i)
+	}
+	wg.Wait()
+}
+func processarMensagem(msg singleMessageInfo) {
+	if err := enviarMensagem(msg); err != nil {
+		msg.Attempts++
+		msg.LastError = err
+		requeueMessage(msg) // Adicione a mensagem a uma fila de retentativas
+	}
+
+}
+func requeueMessage(msg singleMessageInfo) {
+	newAttempts := atomic.AddInt32(&msg.Attempts, 1)
+	if newAttempts >= 3 {
+		println("Mensagem passou quantidade de tentativas máximas")
+		return
+	}
+	processarMensagem(msg)
+}
+
+var focusedMessagesKeysMutex sync.Mutex
+
+func adicionarFocusedMessage(key string) {
+	focusedMessagesKeysMutex.Lock()
+	defer focusedMessagesKeysMutex.Unlock()
+	focusedMessagesKeys = append(focusedMessagesKeys, key)
+}
+func enviarMensagem(msg singleMessageInfo) error {
+	clientId := msg.clientId
+	client := msg.client
+	JID := msg.JID
+	context := msg.context
+	text := msg.text
+	focus := msg.focus
+	idMensagem := msg.idMensagem
+	number := msg.number
+	fmt.Println("ENVIANDO MENSAGEM", clientId, JID)
+	retornoEnvio, err := client.SendMessage(context, JID, msg.messageInfo)
+	if err != nil {
+		fmt.Println("Erro ao enviar mensagem", err)
+	}
+	fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", retornoEnvio.ID, clientId, text, number)
+	if focus != "" {
+		if focusedMessagesKeys == nil {
+			focusedMessagesKeys = []string{}
+		}
+		adicionarFocusedMessage(focus + "_" + retornoEnvio.ID)
+	}
+	if idMensagem != "" {
+		data := map[string]any{
+			"evento":   "MENSAGEM_ENVIADA",
+			"clientId": clientId,
+			"data": map[string]string{
+				"newID":  retornoEnvio.ID,
+				"oldID":  idMensagem,
+				"sender": strings.Replace(number, "+", "", -1),
+			},
+		}
+		lastIndex := strings.LastIndex(clientId, "_")
+		sufixo := clientId[lastIndex+1:]
+		baseURL := strings.Split(mapOficial[sufixo], "chatbot")[0]
+		if strings.Contains(baseURL, "disparo") {
+			baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
+		}
+		sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novo-id/")
+	}
+	return nil
 }
 func cleanup() {
 	fmt.Println("FECHANDO")
@@ -1165,292 +1512,14 @@ func main() {
 		// Exibindo o resultado
 		// clientIdCopy := clientId
 		log.Printf("ClientId antes da goroutine: %s", clientId)
-		go func(clientIdLocal string,
-			result []map[string]interface{},
-			documento_padrao *multipart.FileHeader,
-			files *multipart.FileHeader,
-			sendContact string, // Adicione
-			noTimeout string, // Adicione
-			dataProgramada string, // Adicione
-			infoObjects string) {
-			var uniqueMessageID = clientIdLocal + "-!_!-" + uuid.New().String()
-			clientIdByMessageIdMutex.Lock()
-			clientIdByMessageId[uniqueMessageID] = clientIdLocal
-			clientIdByMessageIdMutex.Unlock()
-			defer func() {
-				clientIdByMessageIdMutex.Lock()
-				delete(clientIdByMessageId, uniqueMessageID)
-				clientIdByMessageIdMutex.Unlock()
-			}()
-			fmt.Println(&clientIdLocal, uniqueMessageID)
-			log.Printf("------------------ %s Inside Go Func------------------------ \n\n", clientIdLocal)
-			var leitorZip *zip.Reader = nil
-			if files != nil {
-				zipFile, err := files.Open()
-				if err != nil {
-					log.Fatal("Erro abrindo ZIP", err)
-				}
-				defer zipFile.Close()
-				zipReader, err := zip.NewReader(zipFile, files.Size)
-				if err != nil {
-					log.Fatal(err)
-				}
-				leitorZip = zipReader
-			}
-			for i := 0; i < len(result); i++ {
-				clientIdByMessageIdMutex.Lock()
-				var currentClientID = clientIdByMessageId[uniqueMessageID]
-				clientIdByMessageIdMutex.Unlock()
-				if currentClientID == "" {
-					fmt.Printf("---------- PULANDO MENSAGEM COM CLIENTE CORROMPIDO : '%s' ----------", currentClientID)
-					continue
-				}
-				log.Printf("------------------ %s Inside Go Func Inside FOR ------------------------ \n\n", currentClientID)
-				client := getClient(currentClientID)
-				if client == nil {
-					// Reconecta sob demanda
-					client = tryConnecting(currentClientID)
-					if client == nil {
-						fmt.Println("⛔ -> Cliente não disponível")
-						return
-					}
-				}
-				if client == nil {
-					return
-				}
-				fmt.Println("Cliente recuperado :", currentClientID)
-				item := result[i]
-				nextItem := item
-				number := "+" + item["number"].(string)
-				if i+1 < len(result) {
-					nextItem = result[i+1]
-				}
-				var idImage string
-				switch v := item["id_image"].(type) {
-				case string:
-					idImage = v
-				case int, int64, float64:
-					idImage = fmt.Sprintf("%v", v) // Converte para string
-				default:
-					idImage = "UNDEFINED"
-				}
-
-				focus, _ := item["focus"].(string)
-				quotedMessage, _ := item["quotedMessage"].(map[string]interface{})
-				id_grupo, _ := item["id_grupo"].(string)
-				paymentMessage, _ := item["paymentMessage"].(map[string]interface{})
-				editedIDMessage, ok := item["editedIDMessage"].(string)
-				if !ok {
-					// Defina o valor padrão ou apenas ignore a chave
-					editedIDMessage = "" // ou outro valor padrão
-				}
-				idMensagem, ok := item["idMensagem"].(string)
-				if !ok {
-					// Defina o valor padrão ou apenas ignore a chave
-					idMensagem = "" // ou outro valor padrão
-				}
-				text, ok := item["text"].(string)
-				if !ok {
-					text = ""
-				}
-				numbers := []string{number}
-				validNumber, err := client.IsOnWhatsApp(numbers)
-				if err != nil {
-					fmt.Println(err, "ERRO ISONWHATSAPP")
-					fmt.Println("⛔ -> Numero inválido Erro. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text)
-
-				}
-
-				var JID types.JID = types.JID{}
-				if id_grupo != "" {
-					JID = types.JID{User: strings.Replace(id_grupo, "@g.us", "", -1), Server: types.GroupServer}
-				} else {
-					if len(validNumber) == 0 {
-						fmt.Println("⛔ -> Numero inválido. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text)
-
-						continue
-					}
-					response := validNumber[0] // Acessa o primeiro item da slicet
-					JID = response.JID
-					IsIn := response.IsIn
-					if !IsIn {
-						fmt.Println("⛔ -> Numero not In WhatsApp. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text)
-						continue
-					}
-				}
-				setStatus(client, "digitando", JID)
-				message := &waE2E.Message{Conversation: &text}
-				if sendContact != "" {
-					var sendContactMap map[string]string
-					// Deserializando o JSON corretamente para o map
-					err = json.Unmarshal([]byte(sendContact), &sendContactMap)
-					if err != nil {
-						fmt.Println("Erro ao desserializar JSON:", err)
-						return
-					}
-					validNumber, err := client.IsOnWhatsApp([]string{sendContactMap["contato"]})
-					if err != nil {
-						safePanic(err, "ERRO IS ONWHATSAPP")
-
-					}
-					response := validNumber[0]
-					cell := response.JID.User
-					formatedNumber := formatPhoneNumber(cell)
-					if formatedNumber != "" {
-						contactMessage := &waE2E.Message{
-							ContactMessage: &waE2E.ContactMessage{
-								DisplayName: proto.String(sendContactMap["nome"]),
-								Vcard:       proto.String("BEGIN:VCARD\nVERSION:3.0\nN:;" + sendContactMap["nome"] + ";;;\nFN:" + sendContactMap["nome"] + "\nitem1.TEL;waid=" + cell + ":" + formatedNumber + "\nitem1.X-ABLabel:Celular\nEND:VCARD"),
-							}}
-						client.SendMessage(context.Background(), JID, contactMessage)
-					} else {
-						fmt.Println("FORMATADO ->", err)
-					}
-				}
-				if text == "" {
-					return
-				}
-				if leitorZip != nil {
-					for _, arquivo := range leitorZip.File {
-						if strings.Contains(arquivo.Name, "documento_"+idImage) {
-							// Criar um arquivo local para salvar
-							fileName := strings.Replace(arquivo.Name, "documento_"+idImage+"_", "", -1)
-							destFile, err := os.Create("./uploads/" + currentClientID + fileName)
-							if err != nil {
-								fmt.Printf("erro ao criar arquivo: %v", err)
-							}
-							defer destFile.Close()
-
-							// Abrir o arquivo do ZIP
-							zipFileReader, err := arquivo.Open()
-							if err != nil {
-								fmt.Printf("erro ao abrir arquivo do zip: %v", err)
-							}
-							defer zipFileReader.Close()
-							// Copiar o conteúdo do arquivo do ZIP para o arquivo local
-							_, err = io.Copy(destFile, zipFileReader)
-							if err != nil {
-								fmt.Printf("erro ao copiar conteúdo para o arquivo: %v", err)
-							}
-							uniqueFileText := text
-							if documento_padrao != nil {
-								uniqueFileText = ""
-							}
-							tempMessage := prepararMensagemArquivo(uniqueFileText, message, "./uploads/"+clientId+fileName, client, currentClientID)
-							if documento_padrao != nil {
-								client.SendMessage(context.Background(), JID, tempMessage)
-							} else {
-								message = tempMessage
-							}
-						}
-					}
-				}
-				if documento_padrao != nil {
-					message = prepararMensagemArquivo(text, message, "./uploads/"+currentClientID+documento_padrao.Filename, client, currentClientID)
-				}
-				if quotedMessage != nil {
-					messageID, ok := quotedMessage["messageID"].(string)
-					if !ok {
-						log.Println("messageID não é uma string.")
-					}
-					sender, ok := quotedMessage["sender"].(string)
-					if !ok {
-						log.Println("sender não é uma string.")
-					}
-					messageQuoted, ok := quotedMessage["messageQuoted"].(string)
-					if !ok {
-						log.Println("messageQuoted não é uma string.")
-					}
-					validNumber, err := client.IsOnWhatsApp([]string{sender})
-					if err != nil {
-						safePanic(err, "ERRO IS ONWHATSAPP")
-					}
-					response := validNumber[0]
-					senderJID := response.JID
-					var msg_quote *waE2E.Message = &waE2E.Message{
-						ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-							Text: proto.String(messageQuoted),
-						},
-					}
-					message.Conversation = nil
-					message.ExtendedTextMessage = &waE2E.ExtendedTextMessage{
-						Text: proto.String(text),
-						ContextInfo: &waE2E.ContextInfo{
-							StanzaID:      &messageID,
-							Participant:   proto.String(senderJID.String()),
-							QuotedMessage: msg_quote,
-						},
-					}
-				}
-				if editedIDMessage != "" {
-					message = client.BuildEdit(JID, editedIDMessage, message)
-				}
-				if paymentMessage != nil {
-
-				}
-				retornoEnvio, err := client.SendMessage(context.Background(), JID, message)
-
-				if err != nil {
-					fmt.Println("Erro ao enviar mensagem", err)
-				}
-				fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", retornoEnvio.ID, currentClientID, text, number)
-
-				if focus != "" {
-					if focusedMessagesKeys == nil {
-						focusedMessagesKeys = []string{}
-					}
-					focusedMessagesKeys = append(focusedMessagesKeys, focus+"_"+retornoEnvio.ID)
-				}
-				if idMensagem != "" {
-					data := map[string]any{
-						"evento":   "MENSAGEM_ENVIADA",
-						"clientId": currentClientID,
-						"data": map[string]string{
-							"newID":  retornoEnvio.ID,
-							"oldID":  idMensagem,
-							"sender": strings.Replace(number, "+", "", -1),
-						},
-					}
-					lastIndex := strings.LastIndex(currentClientID, "_")
-					sufixo := currentClientID[lastIndex+1:]
-					baseURL := strings.Split(mapOficial[sufixo], "chatbot")[0]
-					if strings.Contains(baseURL, "disparo") {
-						baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
-					}
-					sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novo-id/")
-				}
-				var tempoEsperado float32 = float32(randomBetween(30, 45))
-				if len(result) > 1 && noTimeout == "" && i+1 < len(result) {
-					nextItemText, ok := nextItem["text"].(string)
-					if !ok {
-						nextItemText = ""
-					}
-					tempoEsperado = tempoEsperado + float32(utf8.RuneCountInString(nextItemText))*0.03
-					fmt.Println("⏳ Tempo esperado para enviar a próxima mensagem:", tempoEsperado, "segundos...")
-					time.Sleep(time.Duration(tempoEsperado) * time.Second)
-				} else if i+1 == len(result) {
-					fmt.Printf("-------------- DISPARO PARA  %s FINALIZADO ---------------\n", currentClientID)
-					clientIdByMessageIdMutex.Lock()
-					delete(clientIdByMessageId, uniqueMessageID) // Use a chave correta!
-					clientIdByMessageIdMutex.Unlock()
-				}
-			}
-			defer func() {
-				if documento_padrao != nil {
-					err = os.Remove("./uploads/" + clientId + documento_padrao.Filename)
-					if err != nil {
-						fmt.Println("Erro ao excluir arquivo", err)
-					}
-				}
-			}()
-		}(clientId,
+		go processarGrupoMensagens(sendMessageInfo{clientId,
 			result,
 			documento_padrao,
 			files,
 			sendContact,    // Passe como argumento
 			noTimeout,      // Passe como argumento
 			dataProgramada, // Passe como argumento
-			infoObjects)
+			infoObjects})
 		log.Printf("ClientId dentro da goroutine: %s", clientId)
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Arquivo recebido e enviado no WhatsApp.",
@@ -1517,7 +1586,7 @@ func main() {
 				}
 				sendToEndPoint(data, baseURL)
 			case *events.Disconnected:
-				fmt.Println("🔄 -> RECONECTANDO CLIENTE", clientId)
+				log.Printf("🔄 -> RECONECTANDO CLIENTE %s", clientId)
 			case *events.Receipt:
 				if strings.Contains(clientId, "chat") {
 					handleSeenMessage(v, clientId)
