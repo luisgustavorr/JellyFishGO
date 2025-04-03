@@ -1077,7 +1077,7 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 			fmt.Println("Cliente recuperado :", currentClientID)
 			item := result[i]
 
-			number := "+" + item["number"].(string)
+			number := "+" + strings.Replace(item["number"].(string), "+", "", -1)
 
 			var idImage string
 			switch v := item["id_image"].(type) {
