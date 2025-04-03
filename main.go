@@ -1069,12 +1069,21 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 			totalDelay := time.Duration(randomBetween(30, 45)*int(currentCount)) * time.Second
 			limiter.Wait(context.Background())
 			fmt.Println("⏳ Tempo esperado para enviar a próxima mensagem:", totalDelay, "segundos...", i)
-			time.Sleep(totalDelay) //-DESCOMENTAR
-
 			log.Printf("------------------ %s Inside Go Func Inside FOR ------------------------ \n\n", currentClientID)
+			item := result[i]
+			focus, _ := item["focus"].(string)
+			text, ok := item["text"].(string)
+			if !ok {
+				text = ""
+			}
+			idMensagem, ok := item["idMensagem"].(string)
+			if !ok {
+				idMensagem = "" // ou outro valor padrão
+			}
+			re := regexp.MustCompile("[0-9]+")
+			number := "+" + strings.Join(re.FindAllString(item["number"].(string), -1), "")
 			client := getClient(currentClientID)
 			if client == nil {
-				// Reconecta sob demanda
 				client = tryConnecting(currentClientID)
 				if client == nil {
 					fmt.Println("⛔ -> Cliente não disponível")
@@ -1091,12 +1100,17 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 				messageInfo: nil,
 				Attempts:    0,
 				LastError:   nil,
+				focus:       focus,
+				text:        text,
+				number:      number,
+				idMensagem:  idMensagem,
 			}
+			time.Sleep(totalDelay) //- é o que separa as mensagens de lote
+			currentClientID = msg.clientId
+			client = msg.client
+			text = msg.text
+			number = msg.number
 			fmt.Println("Cliente recuperado :", currentClientID)
-			item := result[i]
-			re := regexp.MustCompile("[0-9]+")
-			number := "+" + strings.Join(re.FindAllString(item["number"].(string), -1), "")
-
 			var idImage string
 			switch v := item["id_image"].(type) {
 			case string:
@@ -1107,7 +1121,6 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 				idImage = "UNDEFINED"
 			}
 
-			focus, _ := item["focus"].(string)
 			quotedMessage, _ := item["quotedMessage"].(map[string]interface{})
 			id_grupo, _ := item["id_grupo"].(string)
 			paymentMessage, _ := item["paymentMessage"].(map[string]interface{})
@@ -1116,23 +1129,12 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 				// Defina o valor padrão ou apenas ignore a chave
 				editedIDMessage = "" // ou outro valor padrão
 			}
-			idMensagem, ok := item["idMensagem"].(string)
-			if !ok {
-				// Defina o valor padrão ou apenas ignore a chave
-				idMensagem = "" // ou outro valor padrão
-			}
-			text, ok := item["text"].(string)
-			if !ok {
-				text = ""
-			}
-
-			validNumber, err := checkNumberWithRetry(client, number)
+			validNumber, err := checkNumberWithRetry(client, msg.number)
 			if err != nil {
 				fmt.Println(err, "ERRO ISONWHATSAPP")
 				fmt.Println("⛔ -> Numero inválido Erro. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text)
 				return
 			}
-
 			var JID types.JID = types.JID{}
 			if id_grupo != "" {
 				JID = types.JID{User: strings.Replace(id_grupo, "@g.us", "", -1), Server: types.GroupServer}
@@ -1149,12 +1151,7 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 					return
 				}
 			}
-			msg.focus = focus
-			msg.idMensagem = idMensagem
-			msg.number = number
-			msg.text = text
 			msg.JID = JID
-
 			setStatus(client, "digitando", JID)
 			message := &waE2E.Message{Conversation: &text}
 			if sendContact != "" {
