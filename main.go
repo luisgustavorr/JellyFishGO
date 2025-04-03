@@ -635,7 +635,6 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			mensagem["nome_grupo"] = groupInfo.GroupName.Name
 		}
 		mensagem["id_grupo"] = strings.Replace(fullInfoMessage.Info.Chat.String(), "@g.us", "", -1)
-
 	}
 	var focus = getMessageFocus(focusedMessagesKeys, id_message)
 	if focus != "" {
@@ -710,7 +709,6 @@ func autoConnection() {
 		log.Printf("Erro ao ler clientes: %v", err)
 		return
 	}
-
 	// Fase 1: Coleta de IDs sem lock
 	var clientIDs []string
 	for _, file := range files {
@@ -719,13 +717,11 @@ func autoConnection() {
 			clientIDs = append(clientIDs, clientID)
 		}
 	}
-
 	// Fase 2: Processamento individual com lock curto
 	for _, clientID := range clientIDs {
 		clientsMutex.Lock()
 		_, exists := clientMap[clientID]
 		clientsMutex.Unlock()
-
 		if !exists {
 			// Reconecta sem lock
 			newClient := tryConnecting(clientID)
@@ -736,7 +732,6 @@ func autoConnection() {
 				removeClientDB(clientID, nil)
 			}
 			clientsMutex.Unlock()
-
 		}
 	}
 }
@@ -749,7 +744,6 @@ func isOnWhatsAppSafe(client *whatsmeow.Client, numbers []string) ([]types.IsOnW
 func checkNumberWithRetry(client *whatsmeow.Client, number string) (resp []types.IsOnWhatsAppResponse, err error) {
 	maxRetries := 3
 	backoff := 1 * time.Second
-
 	for i := 0; i < maxRetries; i++ {
 		responses, err := isOnWhatsAppSafe(client, []string{number})
 		if err == nil && len(responses) > 0 {
@@ -787,16 +781,13 @@ func tryConnecting(clientId string) *whatsmeow.Client {
 				handleSeenMessage(v, clientId)
 			}
 		case *events.Disconnected:
-			fmt.Println("Cliente " + clientId + "desconectou do WhatsApp!")
+			log.Printf("🔄 -> RECONECTANDO CLIENTE %s", clientId)
 		case *events.LoggedOut:
-
 			desconctarCliente(clientId)
 			fmt.Println("Cliente " + clientId + " deslogou do WhatsApp!")
-
 		case *events.Message:
 			if strings.Contains(clientId, "chat") {
 				handleMessage(v, clientId, client)
-
 			}
 		}
 	})
@@ -1064,11 +1055,9 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 				wg.Done()
 			}()
 			mu.Lock()
-			currentCount := atomic.AddInt32(&sendInfo.counter, 1)
+			// currentCount := atomic.AddInt32(&sendInfo.counter, 1)
 			mu.Unlock()
-			totalDelay := time.Duration(randomBetween(30, 45)*int(currentCount)) * time.Second
 			limiter.Wait(context.Background())
-			fmt.Println("⏳ Tempo esperado para enviar a próxima mensagem:", totalDelay, "segundos...", i)
 			log.Printf("------------------ %s Inside Go Func Inside FOR ------------------------ \n\n", currentClientID)
 			item := result[i]
 			focus, _ := item["focus"].(string)
@@ -1105,7 +1094,6 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 				number:      number,
 				idMensagem:  idMensagem,
 			}
-			time.Sleep(totalDelay) //- é o que separa as mensagens de lote
 			currentClientID = msg.clientId
 			client = msg.client
 			text = msg.text
@@ -1267,6 +1255,9 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 			msg.messageInfo = message
 			processarMensagem(msg)
 		}(i)
+		totalDelay := time.Duration(randomBetween(30, 45)) * time.Second
+		time.Sleep(totalDelay) //-\\ é o que separa as mensagens de lote
+
 	}
 	wg.Wait()
 }
@@ -1316,7 +1307,7 @@ func enviarMensagem(msg singleMessageInfo) error {
 	idMensagem := msg.idMensagem
 	number := msg.number
 	fmt.Println("ENVIANDO MENSAGEM", clientId, JID)
-
+	fmt.Println("enviando")
 	retornoEnvio, err := client.SendMessage(context, JID, msg.messageInfo)
 	fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", retornoEnvio.ID, clientId, text, number)
 
@@ -1402,7 +1393,7 @@ func main() {
 		if client == nil {
 			client = tryConnecting(clientId)
 			if client == nil {
-				removeClientDB(clientId, nil)
+				// removeClientDB(clientId, nil)
 				return c.Status(500).JSON(fiber.Map{
 					"message": "Cliente não conectado",
 				})
@@ -1435,7 +1426,7 @@ func main() {
 		}
 		validNumber, err := client.IsOnWhatsApp([]string{receiverNumber})
 		if err != nil {
-			safePanic(err, "ERRO IS ONWHATSAPP")
+			fmt.Println(err, "ERRO IS ONWHATSAPP")
 		}
 		response := validNumber[0]
 		JID := response.JID
