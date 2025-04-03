@@ -1129,7 +1129,7 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 				// Defina o valor padrão ou apenas ignore a chave
 				editedIDMessage = "" // ou outro valor padrão
 			}
-			validNumber, err := checkNumberWithRetry(client, msg.number)
+			validNumber, err := checkNumberWithRetry(client, number)
 			if err != nil {
 				fmt.Println(err, "ERRO ISONWHATSAPP")
 				fmt.Println("⛔ -> Numero inválido Erro. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text)
