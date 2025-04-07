@@ -381,6 +381,7 @@ func sendToEndPoint(data map[string]any, url string) {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		fmt.Printf("Erro ao criar marshal: %v", err)
+		return
 	}
 	if url == "" {
 		fmt.Printf("URL %s vazia", url)
@@ -389,6 +390,7 @@ func sendToEndPoint(data map[string]any, url string) {
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		fmt.Printf("Erro ao criar a requisição: %v", err)
+		return
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "jelly_fish_con_|7@625^4|7")
@@ -397,6 +399,7 @@ func sendToEndPoint(data map[string]any, url string) {
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("Erro ao enviar a requisição: %v", err)
+		return
 	}
 	defer resp.Body.Close()
 	fmt.Println("🌐 -> Resposta Status: [", resp.Status, "] | evento : ", data["evento"], " | clientId :", data["clientId"])
@@ -602,7 +605,6 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			"nome":    name,
 		}
 	}
-
 	messageAttr := map[string]interface{}{
 		"quotedMessage": quotedMessageID,
 		"edited":        edited,
