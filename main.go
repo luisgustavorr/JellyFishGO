@@ -653,7 +653,6 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	objetoMensagens := map[string]interface{}{
 		"mensagem": mensagem,
 	}
-	log.Printf("------------------ %s Receiving Message Event | By Group : %v ------------------------ \n\n", clientId, groupMessage)
 	if fromMe {
 		if media != "" || text != "" {
 			listaMensagens := []map[string]interface{}{}
@@ -674,6 +673,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
 		}
 	} else {
+
 		var uniqueMessageID string = strings.Replace(id_message+"_"+senderNumber+"_"+clientId, " ", "", -1)
 		if val, exists := sentMessages[uniqueMessageID]; exists && val && edited == 0 {
 			fmt.Println("❌ -> Mensagem REPETIDA:", id_message, senderName, senderNumber, clientId, text)
@@ -688,6 +688,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			}
 			messagesToSend[clientId] = append(messagesToSend[clientId], message)
 			messagesQueue.AddMessage(clientId, objetoMensagens, senderNumber)
+			log.Printf("------------------ %s Receiving Message Event | By Group : %v ------------------------ \n\n", clientId, groupMessage)
 			fmt.Println("📩 -> Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text, " | By Group:", groupMessage)
 			fmt.Println("Mensagens registradas : ", len(sentMessages)+1)
 			sentMessages[uniqueMessageID] = true
@@ -1030,7 +1031,7 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 	workers := make(chan struct{}, 10)
 	limiter := rate.NewLimiter(rate.Every(2*time.Second), 1)
 	var wg sync.WaitGroup
-	var mu sync.Mutex
+	// var mu sync.Mutex
 
 	var leitorZip *zip.Reader = nil
 	if files != nil {
@@ -1054,9 +1055,9 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 				<-workers
 				wg.Done()
 			}()
-			mu.Lock()
+			// mu.Lock()
 			// currentCount := atomic.AddInt32(&sendInfo.counter, 1)
-			mu.Unlock()
+			// mu.Unlock()
 			limiter.Wait(context.Background())
 			log.Printf("------------------ %s Inside Go Func Inside FOR ------------------------ \n\n", currentClientID)
 			item := result[i]
