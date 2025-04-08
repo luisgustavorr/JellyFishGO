@@ -36,6 +36,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/pprof"
+	"github.com/google/uuid"
 	"github.com/h2non/filetype"
 	"github.com/joho/godotenv"
 	jsoniter "github.com/json-iterator/go"
@@ -988,16 +989,74 @@ func loadMessagesReceiveds() {
 }
 
 type sendMessageInfo struct {
-	clientIdLocal    string
-	result           []map[string]interface{}
-	documento_padrao *multipart.FileHeader
-	files            *multipart.FileHeader
-	sendContact      string
-	noTimeout        string
-	dataProgramada   string
-	infoObjects      string
-	counter          int32
+	clientIdLocal    string                   `json:"clientIdLocal"`
+	result           []map[string]interface{} `json:"result"`
+	documento_padrao *multipart.FileHeader    `json:"-"`
+	files            *multipart.FileHeader    `json:"-"`
+	sendContact      string                   `json:"sendContact"`
+	noTimeout        string                   `json:"noTimeout"`
+	dataProgramada   string                   `json:"dataProgramada"`
+	infoObjects      string                   `json:"infoObjects"`
+	counter          int32                    `json:"counter"`
+	uuid             string                   `json:"uuid"`
 }
+
+var mensagensPendentes sync.Map
+
+func updateDBMensagensPendentes(uuid string, processed bool) bool {
+
+	db, err := sql.Open("sqlite3", "./pendingMessages.db")
+	if err != nil {
+		log.Println("ERRO AO ADD TAREFA DB", err)
+	}
+	createTableSQL := `CREATE TABLE IF NOT EXISTS pendingMessages (
+		uuid TEXT PRIMARY KEY,
+		sendInfo TEXT
+	);`
+	_, err = db.Exec(createTableSQL)
+	if err != nil {
+		log.Fatal("Erro ao criar TABELA", err)
+	}
+	if processed {
+		fmt.Println("Tentando excluir Mensagem ----")
+		deleteSQL := `DELETE FROM pendingMessages WHERE uuid = ?`
+		_, err = db.Exec(deleteSQL, uuid)
+		if err != nil {
+			fmt.Println("Tentando excluir Mensagem ----", err)
+			return false
+		}
+	} else {
+		sendInfo, ok := mensagensPendentes.Load(uuid)
+		if !ok {
+			fmt.Println("Erro ao carregar Mensagens pendentes no update")
+			return false
+		}
+
+		fmt.Println("send info sendo cadastrada :", sendInfo)
+		insertSQL := `INSERT OR REPLACE INTO pendingMessages (uuid, sendInfo) VALUES (?, ?)`
+		_, err = db.Exec(insertSQL, uuid, sendInfo)
+		if err != nil {
+			return false
+		}
+	}
+	return true
+}
+func addMensagemPendente(uuid string, sendInfo sendMessageInfo) {
+	data, err := json.Marshal(sendInfo)
+	if err != nil {
+		return
+	}
+	fmt.Println(sendInfo)
+	mensagensPendentes.Store(uuid, string(data))
+	updateDBMensagensPendentes(uuid, false)
+}
+func removeMensagemPendente(uuid string) {
+	updateDBMensagensPendentes(uuid, true)
+	mensagensPendentes.Delete(uuid)
+	fmt.Println("REMOVENDO MENSAGEM PENDENTE")
+
+}
+
 type singleMessageInfo struct {
 	client      *whatsmeow.Client
 	clientId    string
@@ -1025,6 +1084,8 @@ type singleMessageInfo struct {
 // }
 
 func processarGrupoMensagens(sendInfo sendMessageInfo) {
+	fmt.Println(sendInfo.uuid)
+	addMensagemPendente(sendInfo.uuid, sendInfo)
 	result := sendInfo.result
 	files := sendInfo.files
 	documento_padrao := sendInfo.documento_padrao
@@ -1078,7 +1139,7 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 			if client == nil {
 				client = tryConnecting(currentClientID)
 				if client == nil {
-					fmt.Println("⛔ -> Cliente não disponível")
+					fmt.Println("⛔ -> Cliente não disponível, ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text)
 					return
 				}
 			}
@@ -1168,7 +1229,7 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 							Vcard:       proto.String("BEGIN:VCARD\nVERSION:3.0\nN:;" + sendContactMap["nome"] + ";;;\nFN:" + sendContactMap["nome"] + "\nitem1.TEL;waid=" + cell + ":" + formatedNumber + "\nitem1.X-ABLabel:Celular\nEND:VCARD"),
 						}}
 					msg.messageInfo = contactMessage
-					processarMensagem(msg)
+					processarMensagem(msg, sendInfo.uuid)
 					// client.SendMessage(context.Background(), JID, contactMessage)
 				} else {
 					fmt.Println("FORMATADO ->", err)
@@ -1206,7 +1267,7 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 						tempMessage := prepararMensagemArquivo(uniqueFileText, message, "./uploads/"+currentClientID+fileName, client, currentClientID)
 						if documento_padrao != nil {
 							msg.messageInfo = tempMessage
-							processarMensagem(msg)
+							processarMensagem(msg, sendInfo.uuid)
 						} else {
 							message = tempMessage
 						}
@@ -1256,9 +1317,10 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 			if paymentMessage != nil {
 			}
 			msg.messageInfo = message
-			processarMensagem(msg)
+			processarMensagem(msg, sendInfo.uuid)
 		}(i)
 		totalDelay := time.Duration(randomBetween(30, 45)) * time.Second
+		fmt.Println("⏳ Tempo esperado para enviar a próxima mensagem:", totalDelay, "segundos...")
 		time.Sleep(totalDelay) //-\\ é o que separa as mensagens de lote
 
 	}
@@ -1276,21 +1338,21 @@ func autoCleanup() {
 		clientsMutex.Unlock()
 	}
 }
-func processarMensagem(msg singleMessageInfo) {
-	if err := enviarMensagem(msg); err != nil {
+func processarMensagem(msg singleMessageInfo, uuid string) {
+	if err := enviarMensagem(msg, uuid); err != nil {
 		msg.Attempts++
 		msg.LastError = err
-		requeueMessage(msg) // Adicione a mensagem a uma fila de retentativas
+		requeueMessage(msg, uuid) // Adicione a mensagem a uma fila de retentativas
 	}
 
 }
-func requeueMessage(msg singleMessageInfo) {
+func requeueMessage(msg singleMessageInfo, uuid string) {
 	newAttempts := atomic.AddInt32(&msg.Attempts, 1)
 	if newAttempts >= 3 {
 		println("Mensagem passou quantidade de tentativas máximas")
 		return
 	}
-	processarMensagem(msg)
+	processarMensagem(msg, uuid)
 }
 
 var focusedMessagesKeysMutex sync.Mutex
@@ -1300,7 +1362,7 @@ func adicionarFocusedMessage(key string) {
 	defer focusedMessagesKeysMutex.Unlock()
 	focusedMessagesKeys = append(focusedMessagesKeys, key)
 }
-func enviarMensagem(msg singleMessageInfo) error {
+func enviarMensagem(msg singleMessageInfo, uuid string) error {
 	clientId := msg.clientId
 	client := msg.client
 	JID := msg.JID
@@ -1324,6 +1386,7 @@ func enviarMensagem(msg singleMessageInfo) error {
 		adicionarFocusedMessage(focus + "_" + retornoEnvio.ID)
 	}
 	if idMensagem != "" {
+		fmt.Println("DENTRO AQUI AAA")
 		data := map[string]any{
 			"evento":   "MENSAGEM_ENVIADA",
 			"clientId": clientId,
@@ -1341,6 +1404,8 @@ func enviarMensagem(msg singleMessageInfo) error {
 		}
 		sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novo-id/")
 	}
+	// removeMensagemPendente(uuid)
+
 	return nil
 }
 func cleanup() {
@@ -1544,7 +1609,7 @@ func main() {
 			sendContact,    // Passe como argumento
 			noTimeout,      // Passe como argumento
 			dataProgramada, // Passe como argumento
-			infoObjects, -1})
+			infoObjects, -1, clientId + uuid.New().String()})
 		log.Printf("ClientId dentro da goroutine: %s", clientId)
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Arquivo recebido e enviado no WhatsApp.",
