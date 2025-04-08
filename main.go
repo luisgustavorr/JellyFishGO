@@ -1177,8 +1177,8 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 		resultWithClientId = append(resultWithClientId, result)
 	}
 	sendInfo.Result = resultWithClientId
+	counter := sendInfo.Counter
 	for i := range sendInfo.Result {
-
 		wg.Add(1)
 		workers <- struct{}{}
 		go func(index int, sendInfo sendMessageInfo) {
@@ -1191,7 +1191,7 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 				wg.Done()
 			}()
 			// mu.Lock()
-			currentCount := atomic.AddInt32(&sendInfo.Counter, 1)
+			currentCount := atomic.AddInt32(&counter, 1)
 			// mu.Unlock()
 			limiter.Wait(context.Background())
 			log.Printf("------------------ %s Inside Go Func Inside FOR (%v,%v)------------------------ \n\n", currentClientID, currentCount, len(sendInfo.Result))
@@ -1703,7 +1703,6 @@ func main() {
 		qrCode := c.FormValue("qrCode") == "true"
 		// Obtenha o dispositivo
 		dbLog := waLog.Stdout("Database", "INFO", true)
-
 		container, err := sqlstore.New("sqlite3", "file:./clients_db/"+clientId+".db?_foreign_keys=on", dbLog)
 		if err != nil {
 			fmt.Println(err)
@@ -1715,7 +1714,6 @@ func main() {
 		clientLog := waLog.Stdout("Client", "ERROR", true)
 		client := whatsmeow.NewClient(deviceStore, clientLog)
 		client.EnableAutoReconnect = true
-
 		client.AddEventHandler(func(evt interface{}) {
 			switch v := evt.(type) {
 			case *events.Connected:
@@ -1747,9 +1745,7 @@ func main() {
 					handleSeenMessage(v, clientId)
 				}
 			case *events.LoggedOut:
-
 				desconctarCliente(clientId)
-
 				fmt.Println("Cliente " + clientId + " deslogou do WhatsApp!")
 			case *events.Message:
 				if strings.Contains(clientId, "chat") {
@@ -1768,11 +1764,7 @@ func main() {
 			}
 			// Aqui, aguardamos pelo QR Code gerado
 			var evento string = "QRCODE_ATUALIZADO"
-
-			clientIdCopy := clientId
-
 			go func(clientId string) {
-
 				repeats[clientId] = 1
 				for evt := range qrChan {
 					if stoppedQrCodeRequests[clientId] {
@@ -1830,7 +1822,7 @@ func main() {
 						return
 					}
 				}
-			}(clientIdCopy)
+			}(c.FormValue("clientId"))
 
 			firstQRCode := <-qrChan
 			if qrCode {
