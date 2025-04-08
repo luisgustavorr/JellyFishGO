@@ -1170,7 +1170,13 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 		}
 		leitorZip = zipReader
 	}
-
+	var resultWithClientId []map[string]interface{}
+	for i := range sendInfo.Result {
+		result := sendInfo.Result[i]
+		result["clientId"] = sendInfo.ClientIdLocal
+		resultWithClientId = append(resultWithClientId, result)
+	}
+	sendInfo.Result = resultWithClientId
 	for i := range sendInfo.Result {
 
 		wg.Add(1)
@@ -1178,7 +1184,8 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 		go func(index int, sendInfo sendMessageInfo) {
 			documento_padrao := sendInfo.documento_padrao
 			sendContact := sendInfo.SendContact
-			currentClientID := sendInfo.ClientIdLocal
+			item := sendInfo.Result[i]
+			currentClientID, _ := item["clientId"].(string)
 			defer func() {
 				<-workers
 				wg.Done()
@@ -1188,7 +1195,7 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 			// mu.Unlock()
 			limiter.Wait(context.Background())
 			log.Printf("------------------ %s Inside Go Func Inside FOR (%v,%v)------------------------ \n\n", currentClientID, currentCount, len(sendInfo.Result))
-			item := sendInfo.Result[i]
+
 			focus, _ := item["focus"].(string)
 			text, ok := item["text"].(string)
 			if !ok {
