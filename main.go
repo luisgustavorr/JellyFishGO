@@ -1764,12 +1764,12 @@ func main() {
 			}
 			// Aqui, aguardamos pelo QR Code gerado
 			var evento string = "QRCODE_ATUALIZADO"
-			go func(clientId string) {
-				repeats[clientId] = 1
+			go func(clientIdCopy string) {
+				repeats[clientIdCopy] = 1
 				for evt := range qrChan {
-					if stoppedQrCodeRequests[clientId] {
-						repeats[clientId] = 5
-						fmt.Printf("Cliente %s pausado", clientId)
+					if stoppedQrCodeRequests[clientIdCopy] {
+						repeats[clientIdCopy] = 5
+						fmt.Printf("Cliente %s pausado", clientIdCopy)
 						return
 					}
 					if evt.Event == "code" {
@@ -1789,33 +1789,33 @@ func main() {
 
 							data := map[string]any{
 								"evento":   evento,
-								"clientId": clientId,
+								"clientId": clientIdCopy,
 								"data":     dataURL,
 							}
-							lastIndex := strings.LastIndex(clientId, "_")
-							sufixo := clientId[lastIndex+1:]
+							lastIndex := strings.LastIndex(clientIdCopy, "_")
+							sufixo := clientIdCopy[lastIndex+1:]
 							baseURL := mapOficial[sufixo]
 							sendToEndPoint(data, baseURL)
 
 						} else {
 							data := map[string]any{
 								"evento":   evento,
-								"clientId": clientId,
+								"clientId": clientIdCopy,
 								"data":     evt.Code,
 							}
-							lastIndex := strings.LastIndex(clientId, "_")
-							sufixo := clientId[lastIndex+1:]
+							lastIndex := strings.LastIndex(clientIdCopy, "_")
+							sufixo := clientIdCopy[lastIndex+1:]
 							baseURL := mapOficial[sufixo]
 							sendToEndPoint(data, baseURL)
 						}
-						repeats[clientId] = repeats[clientId] + 1
-						if repeats[clientId] >= 5 {
+						repeats[clientIdCopy] = repeats[clientIdCopy] + 1
+						if repeats[clientIdCopy] >= 5 {
 							// desconectar
 							fmt.Println("Tentativas de login excedidas")
-							desconctarCliente(clientId)
+							desconctarCliente(clientIdCopy)
 							return
 						}
-						fmt.Printf("Tentativa %d de 5 do cliente %s\n", repeats[clientId], clientId)
+						fmt.Printf("Tentativa %d de 5 do cliente %s\n", repeats[clientIdCopy], clientIdCopy)
 
 					} else if evt.Event == "success" {
 						fmt.Println("-------------------AUTENTICADO")
