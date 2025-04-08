@@ -1786,7 +1786,7 @@ func main() {
 
 							// Criar o data URL
 							dataURL := fmt.Sprintf("data:image/png;base64,%s", base64Img)
-							// SENDQRCODE
+
 							data := map[string]any{
 								"evento":   evento,
 								"clientId": clientId,
