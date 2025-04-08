@@ -1152,35 +1152,33 @@ type singleMessageInfo struct {
 
 func processarGrupoMensagens(sendInfo sendMessageInfo) {
 	fmt.Println(sendInfo.UUID)
-	// addMensagemPendente(sendInfo.UUID, sendInfo)
-	result := sendInfo.Result
-	files := sendInfo.files
-	documento_padrao := sendInfo.documento_padrao
-	clientIdLocal := sendInfo.ClientIdLocal
-	sendContact := sendInfo.SendContact
 	workers := make(chan struct{}, 10)
 	limiter := rate.NewLimiter(rate.Every(2*time.Second), 1)
 	var wg sync.WaitGroup
 	// var mu sync.Mutex
-	fmt.Printf("Processando grupo de %v mensagens para %s \n", len(result), clientIdLocal)
+	fmt.Printf("Processando grupo de %v mensagens para %s \n", len(sendInfo.Result), sendInfo.ClientIdLocal)
 	var leitorZip *zip.Reader = nil
-	if files != nil {
-		zipFile, err := files.Open()
+	if sendInfo.files != nil {
+		zipFile, err := sendInfo.files.Open()
 		if err != nil {
 			log.Fatal("Erro abrindo ZIP", err)
 		}
 		defer zipFile.Close()
-		zipReader, err := zip.NewReader(zipFile, files.Size)
+		zipReader, err := zip.NewReader(zipFile, sendInfo.files.Size)
 		if err != nil {
 			log.Fatal(err)
 		}
 		leitorZip = zipReader
 	}
 
-	for i := range result {
+	for i := range sendInfo.Result {
+
 		wg.Add(1)
 		workers <- struct{}{}
-		go func(index int, currentClientID string) {
+		go func(index int, sendInfo sendMessageInfo) {
+			documento_padrao := sendInfo.documento_padrao
+			sendContact := sendInfo.SendContact
+			currentClientID := sendInfo.ClientIdLocal
 			defer func() {
 				<-workers
 				wg.Done()
@@ -1189,8 +1187,8 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 			currentCount := atomic.AddInt32(&sendInfo.Counter, 1)
 			// mu.Unlock()
 			limiter.Wait(context.Background())
-			log.Printf("------------------ %s Inside Go Func Inside FOR (%v,%v)------------------------ \n\n", currentClientID, currentCount, len(result))
-			item := result[i]
+			log.Printf("------------------ %s Inside Go Func Inside FOR (%v,%v)------------------------ \n\n", currentClientID, currentCount, len(sendInfo.Result))
+			item := sendInfo.Result[i]
 			focus, _ := item["focus"].(string)
 			text, ok := item["text"].(string)
 			if !ok {
@@ -1385,7 +1383,7 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 			}
 			msg.messageInfo = message
 			processarMensagem(msg, sendInfo.UUID)
-		}(i, clientIdLocal)
+		}(i, sendInfo)
 		totalDelay := time.Duration(randomBetween(30, 45)) * time.Second
 		fmt.Println("⏳ Tempo esperado para enviar a próxima mensagem:", totalDelay, "segundos...")
 		time.Sleep(totalDelay) //-\\ é o que separa as mensagens de lote
@@ -1449,7 +1447,6 @@ func enviarMensagem(msg singleMessageInfo, uuid string) error {
 		adicionarFocusedMessage(focus + "_" + retornoEnvio.ID)
 	}
 	if idMensagem != "" {
-		fmt.Println("DENTRO AQUI AAA")
 		data := map[string]any{
 			"evento":   "MENSAGEM_ENVIADA",
 			"clientId": clientId,
@@ -1635,7 +1632,6 @@ func main() {
 					documento_padrao.Filename = strings.Replace(documento_padrao.Filename, ".webp", ".jpeg", -1)
 				}
 			}
-			fmt.Println("Resultado: ")
 
 		}
 		var files *multipart.FileHeader = nil
