@@ -1639,7 +1639,6 @@ func main() {
 					documento_padrao.Filename = strings.Replace(documento_padrao.Filename, ".webp", ".jpeg", -1)
 				}
 			}
-
 		}
 		var files *multipart.FileHeader = nil
 		files, _ = c.FormFile("file")
@@ -1680,7 +1679,6 @@ func main() {
 			"message": "Arquivo recebido e enviado no WhatsApp.",
 		})
 	})
-
 	r.Post("/getQRCode", func(c *fiber.Ctx) error {
 		// Recupera o corpo da requisição e faz a bind para a estrutura de dados
 		sendEmail := c.FormValue("notifyEmail")
@@ -1692,16 +1690,14 @@ func main() {
 			store.DeviceProps = &waCompanionReg.DeviceProps{Os: proto.String("Shark Business")}
 		}
 		clientsMutex.Lock()
-		if clientMap[clientId] != nil {
-			clientsMutex.Unlock() // Libera o mutex antes de retornar a resposta
-			return c.Status(200).JSON(fiber.Map{
-				"message": "Cliente já autenticado",
-			})
-		}
+		// if clientMap[clientId] != nil {
+		// 	clientsMutex.Unlock() // Libera o mutex antes de retornar a resposta
+		// 	return c.Status(200).JSON(fiber.Map{
+		// 		"message": "Cliente já autenticado",
+		// 	})
+		// }
 		clientsMutex.Unlock() // Libera o mutex após verificar o clientId
-
 		qrCode := c.FormValue("qrCode") == "true"
-		// Obtenha o dispositivo
 		dbLog := waLog.Stdout("Database", "INFO", true)
 		container, err := sqlstore.New("sqlite3", "file:./clients_db/"+clientId+".db?_foreign_keys=on", dbLog)
 		if err != nil {
