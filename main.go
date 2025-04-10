@@ -1690,12 +1690,12 @@ func main() {
 			store.DeviceProps = &waCompanionReg.DeviceProps{Os: proto.String("Shark Business")}
 		}
 		clientsMutex.Lock()
-		// if clientMap[clientId] != nil {
-		// 	clientsMutex.Unlock() // Libera o mutex antes de retornar a resposta
-		// 	return c.Status(200).JSON(fiber.Map{
-		// 		"message": "Cliente já autenticado",
-		// 	})
-		// }
+		if clientMap[clientId] != nil && clientMap[clientId].IsConnected() && clientMap[clientId].IsLoggedIn() {
+			clientsMutex.Unlock() // Libera o mutex antes de retornar a resposta
+			return c.Status(200).JSON(fiber.Map{
+				"message": "Cliente já autenticado",
+			})
+		}
 		clientsMutex.Unlock() // Libera o mutex após verificar o clientId
 		qrCode := c.FormValue("qrCode") == "true"
 		dbLog := waLog.Stdout("Database", "INFO", true)
