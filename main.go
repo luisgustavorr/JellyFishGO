@@ -1150,35 +1150,31 @@ type singleMessageInfo struct {
 // 	return ok
 // }
 
-func processarGrupoMensagens(sendInfo sendMessageInfo) {
-	fmt.Println(sendInfo.UUID)
+func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
+	fmt.Println(sendInfoMain.UUID)
 	workers := make(chan struct{}, 10)
 	limiter := rate.NewLimiter(rate.Every(2*time.Second), 1)
 	var wg sync.WaitGroup
 	// var mu sync.Mutex
-	fmt.Printf("Processando grupo de %v mensagens para %s \n", len(sendInfo.Result), sendInfo.ClientIdLocal)
+	fmt.Printf("Processando grupo de %v mensagens para %s \n", len(sendInfoMain.Result), sendInfoMain.ClientIdLocal)
 	var leitorZip *zip.Reader = nil
-	if sendInfo.files != nil {
-		zipFile, err := sendInfo.files.Open()
+	if sendInfoMain.files != nil {
+		zipFile, err := sendInfoMain.files.Open()
 		if err != nil {
 			log.Fatal("Erro abrindo ZIP", err)
 		}
 		defer zipFile.Close()
-		zipReader, err := zip.NewReader(zipFile, sendInfo.files.Size)
+		zipReader, err := zip.NewReader(zipFile, sendInfoMain.files.Size)
 		if err != nil {
 			log.Fatal(err)
 		}
 		leitorZip = zipReader
 	}
-	var resultWithClientId []map[string]interface{}
-	for i := range sendInfo.Result {
-		result := sendInfo.Result[i]
-		result["clientId"] = sendInfo.ClientIdLocal
-		resultWithClientId = append(resultWithClientId, result)
+	for i := range sendInfoMain.Result {
+		sendInfoMain.Result[i]["clientId"] = sendInfoMain.ClientIdLocal
 	}
-	sendInfo.Result = resultWithClientId
-	counter := sendInfo.Counter
-	for i := range sendInfo.Result {
+	counter := sendInfoMain.Counter
+	for i := range sendInfoMain.Result {
 		wg.Add(1)
 		workers <- struct{}{}
 		go func(index int, sendInfo sendMessageInfo) {
@@ -1288,7 +1284,7 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 				}
 				validNumber, err := client.IsOnWhatsApp([]string{sendContactMap["contato"]})
 				if err != nil {
-					safePanic(err, "ERRO IS ONWHATSAPP")
+					fmt.Println(err, "ERRO IS ONWHATSAPP")
 
 				}
 				response := validNumber[0]
@@ -1390,7 +1386,7 @@ func processarGrupoMensagens(sendInfo sendMessageInfo) {
 			}
 			msg.messageInfo = message
 			processarMensagem(msg, sendInfo.UUID)
-		}(i, sendInfo)
+		}(i, sendInfoMain)
 		totalDelay := time.Duration(randomBetween(30, 45)) * time.Second
 		fmt.Println("⏳ Tempo esperado para enviar a próxima mensagem:", totalDelay, "segundos...")
 		time.Sleep(totalDelay) //-\\ é o que separa as mensagens de lote
@@ -1477,6 +1473,7 @@ func cleanup() {
 	saveMessagesReceived()
 }
 func main() {
+
 	go autoCleanup()
 	// loadMensagensPendentesFromDB()
 	defer cleanup() // Fecha conexões, salva estado, etc.
