@@ -1512,7 +1512,7 @@ func main() {
 	// r.LoadHTMLGlob("templates/*.html")
 	r.Post("/stopRequest", func(c *fiber.Ctx) error {
 		clientId := c.FormValue("clientId")
-		stoppedQrCodeRequests.Store(clientId, 1)
+		stoppedQrCodeRequests.Store(clientId, int32(1))
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Cliente Pausado",
 		})
@@ -1682,8 +1682,8 @@ func main() {
 		// Recupera o corpo da requisição e faz a bind para a estrutura de dados
 		sendEmail := c.FormValue("notifyEmail")
 		clientId := c.FormValue("clientId")
-		stoppedQrCodeRequests.Store(clientId, 0)
-		repeats.Store(clientId, 0)
+		stoppedQrCodeRequests.Store(clientId, int32(0))
+		repeats.Store(clientId, int32(0))
 		fmt.Printf("Gerando QR Code para o cliente '%s'\n", clientId)
 
 		clientsMutex.Lock()
@@ -1715,7 +1715,7 @@ func main() {
 		client.AddEventHandler(func(evt interface{}) {
 			switch v := evt.(type) {
 			case *events.Connected:
-				stoppedQrCodeRequests.Store(clientId, 1)
+				stoppedQrCodeRequests.Store(clientId, int32(1))
 				clientsMutex.Lock()
 				clientMap[clientId] = client
 				clientsMutex.Unlock()
@@ -1764,12 +1764,12 @@ func main() {
 			go func(clientIdCopy string) {
 				actual, _ := repeats.LoadOrStore(clientIdCopy, new(int32))
 				counterPtr := actual.(*int32)
-				atomic.StoreInt32(counterPtr, 1) // Define o valor inicial como 1
+				atomic.StoreInt32(counterPtr, int32(1)) // Define o valor inicial como 1
 				for evt := range qrChan {
 					stoppedActual, _ := stoppedQrCodeRequests.LoadOrStore(clientIdCopy, new(int32))
 					stoppedPtr := stoppedActual.(*int32)
 					if atomic.LoadInt32(stoppedPtr) == 1 {
-						repeats.Store(clientIdCopy, 5)
+						repeats.Store(clientIdCopy, int32(5))
 						fmt.Printf("Cliente %s pausado", clientIdCopy)
 						return
 					}
@@ -1809,7 +1809,7 @@ func main() {
 							baseURL := mapOficial[sufixo]
 							sendToEndPoint(data, baseURL)
 						}
-						currentRepeat := atomic.AddInt32(counterPtr, 1)
+						currentRepeat := atomic.AddInt32(counterPtr, int32(1))
 						if currentRepeat >= 5 {
 							// desconectar
 							fmt.Println("Tentativas de login excedidas")
