@@ -572,7 +572,8 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	edited := 0
 	validNumber, err := client.IsOnWhatsApp([]string{senderNumber})
 	if err != nil {
-		safePanic(err, "ERRO IS ONWHATSAPP")
+		fmt.Println(err, "ERRO IS ONWHATSAPP")
+		return false
 	}
 	response := validNumber[0] // Acessa o primeiro item da slice
 	JID := response.JID
@@ -942,7 +943,8 @@ func saveMessagesReceived() {
 				db, err := sql.Open("sqlite3", "./messages.db")
 				db.SetMaxOpenConns(10) // Ajuste co
 				if err != nil {
-					safePanic("ERRO AO ADD TAREFA DB", err)
+					fmt.Println("ERRO AO ADD TAREFA DB", err)
+					return
 				}
 				createTableSQL := `CREATE TABLE IF NOT EXISTS sent_messages (
                     id TEXT
@@ -1145,17 +1147,15 @@ type singleMessageInfo struct {
 // 	activeClients.Store(clientID, time.Now())
 // }
 
-// func clienteAtivo(clientID string) bool {
-// 	_, ok := activeClients.Load(clientID)
-// 	return ok
-// }
-
+//	func clienteAtivo(clientID string) bool {
+//		_, ok := activeClients.Load(clientID)
+//		return ok
+//	}
 func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 	fmt.Println(sendInfoMain.UUID)
 	workers := make(chan struct{}, 10)
 	limiter := rate.NewLimiter(rate.Every(2*time.Second), 1)
 	var wg sync.WaitGroup
-	// var mu sync.Mutex
 	fmt.Printf("Processando grupo de %v mensagens para %s \n", len(sendInfoMain.Result), sendInfoMain.ClientIdLocal)
 	var leitorZip *zip.Reader = nil
 	if sendInfoMain.files != nil {
@@ -1191,7 +1191,6 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			// mu.Unlock()
 			limiter.Wait(context.Background())
 			log.Printf("------------------ %s Inside Go Func Inside FOR (%v,%v)------------------------ \n\n", currentClientID, currentCount, len(sendInfo.Result))
-
 			focus, _ := item["focus"].(string)
 			text, ok := item["text"].(string)
 			if !ok {
@@ -1360,7 +1359,8 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 				}
 				validNumber, err := client.IsOnWhatsApp([]string{sender})
 				if err != nil {
-					safePanic(err, "ERRO IS ONWHATSAPP")
+					fmt.Println(err, "ERRO IS ONWHATSAPP pgm")
+					return
 				}
 				response := validNumber[0]
 				senderJID := response.JID
@@ -1723,7 +1723,6 @@ func main() {
 						"data_conexao":     "2025-01-20",
 					},
 				}
-
 				lastIndex := strings.LastIndex(clientId, "_")
 				sufixo := clientId[lastIndex+1:]
 				baseURL := mapOficial[sufixo]
@@ -1743,7 +1742,6 @@ func main() {
 			case *events.Message:
 				if strings.Contains(clientId, "chat") {
 					handleMessage(v, clientId, client)
-
 				}
 			}
 		})
