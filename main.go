@@ -836,8 +836,6 @@ func randomBetween(min, max int) int {
 	return rand.Intn(max-min+1) + min
 }
 
-var repeats map[string]int = make(map[string]int)
-
 func setStatus(client *whatsmeow.Client, status string, JID types.JID) {
 	if status == "conectado" {
 		typePresence := types.PresenceAvailable
@@ -854,7 +852,10 @@ func setStatus(client *whatsmeow.Client, status string, JID types.JID) {
 	}
 }
 
-var stoppedQrCodeRequests = make(map[string]bool)
+var (
+	repeats               sync.Map // clientId -> *int32 (contador atômico)
+	stoppedQrCodeRequests sync.Map // clientId -> *int32 (0 = false, 1 = true)
+)
 
 func normalizeFileName(filename string) string {
 	normalizedFileName := filename
@@ -1511,7 +1512,7 @@ func main() {
 	// r.LoadHTMLGlob("templates/*.html")
 	r.Post("/stopRequest", func(c *fiber.Ctx) error {
 		clientId := c.FormValue("clientId")
-		stoppedQrCodeRequests[clientId] = true
+		stoppedQrCodeRequests.Store(clientId, 1)
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Cliente Pausado",
 		})
@@ -1677,15 +1678,14 @@ func main() {
 		})
 	})
 	r.Post("/getQRCode", func(c *fiber.Ctx) error {
+
 		// Recupera o corpo da requisição e faz a bind para a estrutura de dados
 		sendEmail := c.FormValue("notifyEmail")
 		clientId := c.FormValue("clientId")
+		stoppedQrCodeRequests.Store(clientId, 0)
+		repeats.Store(clientId, 0)
 		fmt.Printf("Gerando QR Code para o cliente '%s'\n", clientId)
-		if strings.Contains(clientId, "_chat") {
-			store.DeviceProps = &waCompanionReg.DeviceProps{Os: proto.String("Shark Business(ChatBot)")}
-		} else if strings.Contains(clientId, "_shark") {
-			store.DeviceProps = &waCompanionReg.DeviceProps{Os: proto.String("Shark Business")}
-		}
+
 		clientsMutex.Lock()
 		if clientMap[clientId] != nil && clientMap[clientId].IsConnected() && clientMap[clientId].IsLoggedIn() {
 			clientsMutex.Unlock() // Libera o mutex antes de retornar a resposta
@@ -1704,12 +1704,18 @@ func main() {
 		if err != nil {
 			fmt.Println(err)
 		}
+		if strings.Contains(clientId, "_chat") {
+			store.DeviceProps = &waCompanionReg.DeviceProps{Os: proto.String("Shark Business(ChatBot)")}
+		} else if strings.Contains(clientId, "_shark") {
+			store.DeviceProps = &waCompanionReg.DeviceProps{Os: proto.String("Shark Business")}
+		}
 		clientLog := waLog.Stdout("Client", "ERROR", true)
 		client := whatsmeow.NewClient(deviceStore, clientLog)
 		client.EnableAutoReconnect = true
 		client.AddEventHandler(func(evt interface{}) {
 			switch v := evt.(type) {
 			case *events.Connected:
+				stoppedQrCodeRequests.Store(clientId, 1)
 				clientsMutex.Lock()
 				clientMap[clientId] = client
 				clientsMutex.Unlock()
@@ -1756,10 +1762,14 @@ func main() {
 			// Aqui, aguardamos pelo QR Code gerado
 			var evento string = "QRCODE_ATUALIZADO"
 			go func(clientIdCopy string) {
-				repeats[clientIdCopy] = 1
+				actual, _ := repeats.LoadOrStore(clientIdCopy, new(int32))
+				counterPtr := actual.(*int32)
+				atomic.StoreInt32(counterPtr, 1) // Define o valor inicial como 1
 				for evt := range qrChan {
-					if stoppedQrCodeRequests[clientIdCopy] {
-						repeats[clientIdCopy] = 5
+					stoppedActual, _ := stoppedQrCodeRequests.LoadOrStore(clientIdCopy, new(int32))
+					stoppedPtr := stoppedActual.(*int32)
+					if atomic.LoadInt32(stoppedPtr) == 1 {
+						repeats.Store(clientIdCopy, 5)
 						fmt.Printf("Cliente %s pausado", clientIdCopy)
 						return
 					}
@@ -1799,14 +1809,14 @@ func main() {
 							baseURL := mapOficial[sufixo]
 							sendToEndPoint(data, baseURL)
 						}
-						repeats[clientIdCopy] = repeats[clientIdCopy] + 1
-						if repeats[clientIdCopy] >= 5 {
+						currentRepeat := atomic.AddInt32(counterPtr, 1)
+						if currentRepeat >= 5 {
 							// desconectar
 							fmt.Println("Tentativas de login excedidas")
 							desconctarCliente(clientIdCopy)
 							return
 						}
-						fmt.Printf("Tentativa %d de 5 do cliente %s\n", repeats[clientIdCopy], clientIdCopy)
+						fmt.Printf("Tentativa %d de 5 do cliente %s\n", currentRepeat, clientIdCopy)
 
 					} else if evt.Event == "success" {
 						fmt.Println("-------------------AUTENTICADO")
@@ -1839,7 +1849,6 @@ func main() {
 					"qrCode": dataURL,
 				})
 			} else {
-
 				data := map[string]any{
 					"evento":   evento,
 					"clientId": clientId,
@@ -1854,8 +1863,6 @@ func main() {
 				})
 			}
 		} else {
-			// Caso já tenha ID armazenado, não é necessário gerar QR Code
-
 			// Conecta o cliente
 			err = client.Connect()
 			if err != nil {
@@ -1900,9 +1907,7 @@ func getOrSetEmails(query string, args []any) *sql.Rows {
 	// 	}
 	// 	fmt.Println("AAAA ->", email, clientId)
 	// }
-
 	defer db.Close()
-
 	return rows
 }
 func sendToEmail(target string, text string) {
