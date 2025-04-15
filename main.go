@@ -1763,12 +1763,12 @@ func main() {
 			var evento string = "QRCODE_ATUALIZADO"
 			go func(clientIdCopy string) {
 				actual, _ := repeats.LoadOrStore(clientIdCopy, new(int32))
-				counterPtr := actual.(*int32)
-				atomic.StoreInt32(counterPtr, int32(1)) // Define o valor inicial como 1
+				counterPtr := actual.(int32)
+				atomic.StoreInt32(&counterPtr, int32(1)) // Define o valor inicial como 1
 				for evt := range qrChan {
 					stoppedActual, _ := stoppedQrCodeRequests.LoadOrStore(clientIdCopy, new(int32))
-					stoppedPtr := stoppedActual.(*int32)
-					if atomic.LoadInt32(stoppedPtr) == 1 {
+					stoppedPtr := stoppedActual.(int32)
+					if atomic.LoadInt32(&stoppedPtr) == 1 {
 						repeats.Store(clientIdCopy, int32(5))
 						fmt.Printf("Cliente %s pausado", clientIdCopy)
 						return
@@ -1809,7 +1809,7 @@ func main() {
 							baseURL := mapOficial[sufixo]
 							sendToEndPoint(data, baseURL)
 						}
-						currentRepeat := atomic.AddInt32(counterPtr, int32(1))
+						currentRepeat := atomic.AddInt32(&counterPtr, int32(1))
 						if currentRepeat >= 5 {
 							// desconectar
 							fmt.Println("Tentativas de login excedidas")
