@@ -753,6 +753,20 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string) (resp []types
 	for i := 0; i < maxRetries; i++ {
 		responses, err := isOnWhatsAppSafe(client, []string{number})
 		if err == nil && len(responses) > 0 {
+			response := responses[0]
+			fmt.Println("Resposta Recebida", responses)
+			if response.IsIn {
+				return responses, nil
+			}
+		}
+		time.Sleep(backoff)
+	}
+	numberWith9 := number[:5] + "9" + number[5:]
+	fmt.Println(numberWith9)
+	backoff = 1 * time.Second
+	for i := 0; i < maxRetries; i++ {
+		responses, err := isOnWhatsAppSafe(client, []string{numberWith9})
+		if err == nil && len(responses) > 0 {
 			return responses, nil
 		}
 		time.Sleep(backoff)
@@ -1187,7 +1201,12 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 				idMensagem = "" // ou outro valor padrão
 			}
 			re := regexp.MustCompile("[0-9]+")
-			number := "+" + strings.Join(re.FindAllString(item["number"].(string), -1), "")
+			numberWithOnlyNumbers := strings.Join(re.FindAllString(item["number"].(string), -1), "")
+			if numberWithOnlyNumbers[:2] != "55" {
+				numberWithOnlyNumbers = "55" + numberWithOnlyNumbers
+			}
+			fmt.Println(numberWithOnlyNumbers)
+			number := "+" + numberWithOnlyNumbers
 			client := getClient(currentClientID)
 			if client == nil {
 				client = tryConnecting(currentClientID)
@@ -1233,6 +1252,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 				editedIDMessage = "" // ou outro valor padrão
 			}
 			validNumber, err := checkNumberWithRetry(client, number)
+			fmt.Println(validNumber)
 			if err != nil {
 				fmt.Println(err, "ERRO ISONWHATSAPP")
 				fmt.Println("⛔ -> Numero inválido Erro. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text)
@@ -1248,6 +1268,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 				}
 				response := validNumber[0] // Acessa o primeiro item da slicet
 				JID = response.JID
+				fmt.Println(JID)
 				IsIn := response.IsIn
 				if !IsIn {
 					fmt.Println("⛔ -> Numero not In WhatsApp. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text)
@@ -1422,7 +1443,7 @@ func enviarMensagem(msg singleMessageInfo, uuid string) error {
 	number := msg.number
 	retornoEnvio, err := client.SendMessage(context, JID, msg.messageInfo)
 	fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", retornoEnvio.ID, clientId, text, number)
-	// removeMensagemPendente(uuid, text, number)
+	removeMensagemPendente(uuid, text, number)
 	if err != nil {
 		fmt.Println("Erro ao enviar mensagem", err)
 	}
