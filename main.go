@@ -762,7 +762,6 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string) (resp []types
 		time.Sleep(backoff)
 	}
 	numberWith9 := number[:5] + "9" + number[5:]
-	fmt.Println(numberWith9)
 	backoff = 1 * time.Second
 	for i := 0; i < maxRetries; i++ {
 		responses, err := isOnWhatsAppSafe(client, []string{numberWith9})
@@ -1509,10 +1508,19 @@ func main() {
 		StreamRequestBody: true,
 		BodyLimit:         20 * 1024 * 1024,
 	})
+	var a string
+
 	r.Use(cors.New())
 	r.Use(pprof.New())
 	r.Use(requestLogger)
 	// r.LoadHTMLGlob("templates/*.html")
+	r.Get("/:a", func(c *fiber.Ctx) error {
+		if a == "" {
+			a = utils.CopyString(c.Params("a"))
+		}
+		log.Println(c.Params("a"), a)
+		return c.SendString(a)
+	})
 	r.Post("/stopRequest", func(c *fiber.Ctx) error {
 		clientId := utils.CopyString(c.FormValue("clientId"))
 		stoppedQrCodeRequests.Store(clientId, int32(1))
