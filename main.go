@@ -1443,7 +1443,7 @@ func enviarMensagem(msg singleMessageInfo, uuid string) error {
 	number := msg.number
 	retornoEnvio, err := client.SendMessage(context, JID, msg.messageInfo)
 	fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", retornoEnvio.ID, clientId, text, number)
-	removeMensagemPendente(uuid, text, number)
+	// removeMensagemPendente(uuid, text, number)
 	if err != nil {
 		fmt.Println("Erro ao enviar mensagem", err)
 	}
