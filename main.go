@@ -1124,7 +1124,6 @@ func loadMensagensPendentesFromDB() {
 		}
 		processarGrupoMensagens(sendInfo)
 	}
-
 }
 
 type singleMessageInfo struct {
@@ -1142,16 +1141,6 @@ type singleMessageInfo struct {
 	LastError error
 }
 
-// var activeClients sync.Map
-
-// func registrarCliente(clientID string) {
-// 	activeClients.Store(clientID, time.Now())
-// }
-
-//	func clienteAtivo(clientID string) bool {
-//		_, ok := activeClients.Load(clientID)
-//		return ok
-//	}
 func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 	fmt.Println(sendInfoMain.UUID)
 	workers := make(chan struct{}, 10)
@@ -1171,9 +1160,6 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 		}
 		leitorZip = zipReader
 	}
-	for i := range sendInfoMain.Result {
-		sendInfoMain.Result[i]["clientId"] = sendInfoMain.ClientIdLocal
-	}
 	counter := sendInfoMain.Counter
 	for i := range sendInfoMain.Result {
 		wg.Add(1)
@@ -1187,9 +1173,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 				<-workers
 				wg.Done()
 			}()
-			// mu.Lock()
 			currentCount := atomic.AddInt32(&counter, 1)
-			// mu.Unlock()
 			limiter.Wait(context.Background())
 			log.Printf("------------------ %s Inside Go Func Inside FOR (%v,%v)------------------------ \n\n", currentClientID, currentCount, len(sendInfo.Result))
 			focus, _ := item["focus"].(string)
@@ -1240,13 +1224,11 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			default:
 				idImage = "UNDEFINED"
 			}
-
 			quotedMessage, _ := item["quotedMessage"].(map[string]interface{})
 			id_grupo, _ := item["id_grupo"].(string)
 			paymentMessage, _ := item["paymentMessage"].(map[string]interface{})
 			editedIDMessage, ok := item["editedIDMessage"].(string)
 			if !ok {
-				// Defina o valor padrão ou apenas ignore a chave
 				editedIDMessage = "" // ou outro valor padrão
 			}
 			validNumber, err := checkNumberWithRetry(client, number)
@@ -1316,7 +1298,6 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 							fmt.Printf("erro ao criar arquivo: %v", err)
 						}
 						defer destFile.Close()
-
 						// Abrir o arquivo do ZIP
 						zipFileReader, err := arquivo.Open()
 						if err != nil {
@@ -1646,6 +1627,9 @@ func main() {
 		if err != nil {
 			fmt.Printf("Erro ao converter JSON: %v", err)
 		}
+		for i := range result {
+			result[i]["clientId"] = c.FormValue("clientId")
+		}
 		if dataProgramada != "" {
 			if files != nil {
 				savePath := normalizeFileName("./arquivos_disparos_programados/zip_" + dataProgramada + clientId + files.Filename)
@@ -1664,13 +1648,14 @@ func main() {
 		// Exibindo o resultado
 		// clientIdCopy := clientId
 		log.Printf("ClientId antes da goroutine: %s", clientId)
+
 		go processarGrupoMensagens(sendMessageInfo{clientId,
 			result,
 			documento_padrao,
 			files,
-			sendContact,    // Passe como argumento
-			noTimeout,      // Passe como argumento
-			dataProgramada, // Passe como argumento
+			sendContact,
+			noTimeout,
+			dataProgramada,
 			infoObjects, 0, clientId + uuid.New().String()})
 		log.Printf("ClientId dentro da goroutine: %s", clientId)
 		return c.Status(200).JSON(fiber.Map{
