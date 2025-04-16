@@ -36,6 +36,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/pprof"
+	"github.com/gofiber/fiber/v2/utils"
 	"github.com/google/uuid"
 	"github.com/h2non/filetype"
 	"github.com/joho/godotenv"
@@ -503,7 +504,7 @@ func requestLogger(c *fiber.Ctx) error {
 	start := time.Now()
 	method := c.Method()
 	path := c.Path()
-	clientId := c.FormValue("clientId")
+	clientId := utils.CopyString(c.FormValue("clientId"))
 	err := c.Next()
 	duration := time.Since(start)
 	log.Printf(" [%s] %s | Tempo: %v | ClientId: %s\n", method, path, duration, clientId)
@@ -1492,14 +1493,14 @@ func main() {
 	r.Use(requestLogger)
 	// r.LoadHTMLGlob("templates/*.html")
 	r.Post("/stopRequest", func(c *fiber.Ctx) error {
-		clientId := c.FormValue("clientId")
+		clientId := utils.CopyString(c.FormValue("clientId"))
 		stoppedQrCodeRequests.Store(clientId, int32(1))
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Cliente Pausado",
 		})
 	})
 	r.Post("/verifyConnection", func(c *fiber.Ctx) error {
-		clientId := c.FormValue("clientId")
+		clientId := utils.CopyString(c.FormValue("clientId"))
 		client := getClient(clientId)
 		if client == nil {
 			client = tryConnecting(clientId)
@@ -1520,7 +1521,7 @@ func main() {
 		})
 	})
 	r.Post("/deleteMessage", func(c *fiber.Ctx) error {
-		clientId := c.FormValue("clientId")
+		clientId := utils.CopyString(c.FormValue("clientId"))
 		messageID := c.FormValue("messageID")
 		receiverNumber := c.FormValue("receiverNumber")
 		client := getClient(clientId)
@@ -1554,7 +1555,7 @@ func main() {
 		})
 	})
 	r.Post("/destroySession", func(c *fiber.Ctx) error {
-		clientId := c.FormValue("clientId")
+		clientId := utils.CopyString(c.FormValue("clientId"))
 		desconctarCliente(clientId)
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Cliente desconectado",
@@ -1564,7 +1565,7 @@ func main() {
 		return c.SendFile("./templates/index.html")
 	})
 	r.Post("/sendFiles", func(c *fiber.Ctx) error {
-		clientId := c.FormValue("clientId")
+		clientId := utils.CopyString(c.FormValue("clientId"))
 		log.Printf("------------------ %s Send Files Request ------------------------ \n\n", clientId)
 		client := getClient(clientId)
 		if client == nil {
@@ -1580,10 +1581,10 @@ func main() {
 				"message": "Cliente não conectado",
 			})
 		}
-		noTimeout := c.FormValue("noTimeout")
-		sendContact := c.FormValue("contact")
-		infoObjects := c.FormValue("infoObjects")
-		dataProgramada := c.FormValue("dataProgramada")
+		noTimeout := utils.CopyString(c.FormValue("noTimeout"))
+		sendContact := utils.CopyString(c.FormValue("contact"))
+		infoObjects := utils.CopyString(c.FormValue("infoObjects"))
+		dataProgramada := utils.CopyString(c.FormValue("dataProgramada"))
 		if dataProgramada != "" {
 			layout := "2006-01-02 15:04:05"
 			t, err := time.Parse(layout, dataProgramada)
@@ -1628,7 +1629,7 @@ func main() {
 			fmt.Printf("Erro ao converter JSON: %v", err)
 		}
 		for i := range result {
-			result[i]["clientId"] = c.FormValue("clientId")
+			result[i]["clientId"] = clientId
 		}
 		if dataProgramada != "" {
 			if files != nil {
@@ -1665,8 +1666,8 @@ func main() {
 	r.Post("/getQRCode", func(c *fiber.Ctx) error {
 
 		// Recupera o corpo da requisição e faz a bind para a estrutura de dados
-		sendEmail := c.FormValue("notifyEmail")
-		clientId := c.FormValue("clientId")
+		sendEmail := utils.CopyString(c.FormValue("notifyEmail"))
+		clientId := utils.CopyString(c.FormValue("clientId"))
 		stoppedQrCodeRequests.Store(clientId, int32(0))
 		repeats.Store(clientId, int32(0))
 		fmt.Printf("Gerando QR Code para o cliente '%s'\n", clientId)
@@ -1808,7 +1809,7 @@ func main() {
 						return
 					}
 				}
-			}(c.FormValue("clientId"))
+			}(clientId)
 
 			firstQRCode := <-qrChan
 			if qrCode {
