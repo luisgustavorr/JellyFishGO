@@ -750,6 +750,7 @@ func isOnWhatsAppSafe(client *whatsmeow.Client, numbers []string) ([]types.IsOnW
 func checkNumberWithRetry(client *whatsmeow.Client, number string) (resp []types.IsOnWhatsAppResponse, err error) {
 	maxRetries := 3
 	backoff := 1 * time.Second
+
 	for i := 0; i < maxRetries; i++ {
 		responses, err := isOnWhatsAppSafe(client, []string{number})
 		if err == nil && len(responses) > 0 {
@@ -761,6 +762,9 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string) (resp []types
 		}
 		time.Sleep(backoff)
 	}
+	if len(number) < 5 {
+		return []types.IsOnWhatsAppResponse{}, fmt.Errorf("error : número pequeno demais, inválido para segunda comparação")
+	}
 	numberWith9 := number[:5] + "9" + number[5:]
 	backoff = 1 * time.Second
 	for i := 0; i < maxRetries; i++ {
@@ -769,7 +773,7 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string) (resp []types
 			return responses, nil
 		}
 		time.Sleep(backoff)
-		backoff *= 2 // Backoff exponencial
+		backoff *= 2
 	}
 	return []types.IsOnWhatsAppResponse{}, fmt.Errorf("falha após %d tentativas: %v", maxRetries, err)
 }
@@ -1201,8 +1205,12 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			}
 			re := regexp.MustCompile("[0-9]+")
 			numberWithOnlyNumbers := strings.Join(re.FindAllString(item["number"].(string), -1), "")
-			if numberWithOnlyNumbers[:2] != "55" {
-				numberWithOnlyNumbers = "55" + numberWithOnlyNumbers
+			if len(numberWithOnlyNumbers) > 2 {
+				if numberWithOnlyNumbers[:2] != "55" {
+					numberWithOnlyNumbers = "55" + numberWithOnlyNumbers
+				}
+			} else {
+				numberWithOnlyNumbers = ""
 			}
 			fmt.Println(numberWithOnlyNumbers)
 			number := "+" + numberWithOnlyNumbers
@@ -1251,7 +1259,6 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 				editedIDMessage = "" // ou outro valor padrão
 			}
 			validNumber, err := checkNumberWithRetry(client, number)
-			fmt.Println(validNumber)
 			if err != nil {
 				fmt.Println(err, "ERRO ISONWHATSAPP")
 				fmt.Println("⛔ -> Numero inválido Erro. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text)
@@ -1267,7 +1274,6 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 				}
 				response := validNumber[0] // Acessa o primeiro item da slicet
 				JID = response.JID
-				fmt.Println(JID)
 				IsIn := response.IsIn
 				if !IsIn {
 					fmt.Println("⛔ -> Numero not In WhatsApp. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text)
@@ -1664,21 +1670,16 @@ func main() {
 			if files != nil {
 				savePath := normalizeFileName("./arquivos_disparos_programados/zip_" + dataProgramada + clientId + files.Filename)
 				files_filePath = savePath
-				// Salvar o arquivo no caminho especificado
 				if err := c.SaveFile(files, savePath); err != nil {
 					fmt.Printf("Erro ao salvar o arquivo files para disparo Futuros: %v", err)
 				}
 			}
-
 			addTarefaProgramadaDB(clientId, dataProgramada, infoObjects, documento_padrao_filePath, files_filePath)
 			return c.Status(200).JSON(fiber.Map{
 				"message": "Disparo agendado com sucesso",
 			})
 		}
-		// Exibindo o resultado
-		// clientIdCopy := clientId
 		log.Printf("ClientId antes da goroutine: %s", clientId)
-
 		go processarGrupoMensagens(sendMessageInfo{clientId,
 			result,
 			documento_padrao,
