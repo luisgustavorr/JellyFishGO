@@ -766,6 +766,8 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string) (resp []types
 		return []types.IsOnWhatsAppResponse{}, fmt.Errorf("error : número pequeno demais, inválido para segunda comparação")
 	}
 	numberWith9 := number[:5] + "9" + number[5:]
+	fmt.Println("Tentando com 9 adicional", numberWith9)
+
 	backoff = 1 * time.Second
 	for i := 0; i < maxRetries; i++ {
 		responses, err := isOnWhatsAppSafe(client, []string{numberWith9})
@@ -1294,7 +1296,6 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 				validNumber, err := client.IsOnWhatsApp([]string{sendContactMap["contato"]})
 				if err != nil {
 					fmt.Println(err, "ERRO IS ONWHATSAPP")
-
 				}
 				response := validNumber[0]
 				cell := response.JID.User
@@ -1447,7 +1448,8 @@ func enviarMensagem(msg singleMessageInfo, uuid string) error {
 	idMensagem := msg.idMensagem
 	number := msg.number
 	retornoEnvio, err := client.SendMessage(context, JID, msg.messageInfo)
-	fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", retornoEnvio.ID, clientId, text, number)
+	fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", JID, clientId, text, number)
+	// fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", retornoEnvio.ID, clientId, text, number)
 	// removeMensagemPendente(uuid, text, number)
 	if err != nil {
 		fmt.Println("Erro ao enviar mensagem", err)
