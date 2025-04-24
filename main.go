@@ -1266,13 +1266,13 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 				editedIDMessage = "" // ou outro valor padrão
 			}
 			validNumber, err := checkNumberWithRetry(client, number)
-			if err != nil {
-				fmt.Println(err, "ERRO ISONWHATSAPP")
-				fmt.Println("⛔ -> Numero inválido Erro. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text, "| ID Grupo", id_grupo)
-				return
-			}
 			var JID types.JID = types.JID{}
 			if id_grupo != "" {
+				if err != nil {
+					fmt.Println(err, "ERRO ISONWHATSAPP")
+					fmt.Println("⛔ -> Numero inválido Erro. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text, "| ID Grupo", id_grupo)
+					return
+				}
 				JID = types.JID{User: strings.Replace(id_grupo, "@g.us", "", -1), Server: types.GroupServer}
 			} else {
 				if len(validNumber) == 0 {
