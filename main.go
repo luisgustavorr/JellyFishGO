@@ -640,6 +640,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		if groupInfo != nil {
 			mensagem["nome_grupo"] = groupInfo.GroupName.Name
 		}
+		fmt.Println(fullInfoMessage.Info.Chat.String())
 		mensagem["id_grupo"] = strings.Replace(fullInfoMessage.Info.Chat.String(), "@g.us", "", -1)
 	}
 	var focus = getMessageFocus(focusedMessagesKeys, id_message)
@@ -1199,6 +1200,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			log.Printf("------------------ %s Inside Go Func Inside FOR (%v,%v)------------------------ \n\n", currentClientID, currentCount, len(sendInfo.Result))
 			focus, _ := item["focus"].(string)
 			text, ok := item["text"].(string)
+			id_grupo, _ := item["id_grupo"].(string)
 			if !ok {
 				text = ""
 			}
@@ -1209,19 +1211,19 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			re := regexp.MustCompile("[0-9]+")
 			numberWithOnlyNumbers := strings.Join(re.FindAllString(item["number"].(string), -1), "")
 			if len(numberWithOnlyNumbers) > 2 {
-				if numberWithOnlyNumbers[:2] != "55" && len(numberWithOnlyNumbers) <= 13 {
-					numberWithOnlyNumbers = "55" + numberWithOnlyNumbers
+				if numberWithOnlyNumbers[:2] != "55" {
+					numberWithOnlyNumbers = "+55" + numberWithOnlyNumbers
 				}
 			} else {
 				numberWithOnlyNumbers = ""
 			}
-			fmt.Println(numberWithOnlyNumbers)
-			number := "+" + numberWithOnlyNumbers
+			fmt.Println(types.NewJID(numberWithOnlyNumbers, "s.whatsapp.net"))
+			number := numberWithOnlyNumbers
 			client := getClient(currentClientID)
 			if client == nil {
 				client = tryConnecting(currentClientID)
 				if client == nil {
-					fmt.Println("⛔ -> Cliente não disponível, ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text)
+					fmt.Println("⛔ -> Cliente não disponível, ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text, "| ID Grupo", id_grupo)
 					return
 				}
 			}
@@ -1255,7 +1257,6 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 				idImage = "UNDEFINED"
 			}
 			quotedMessage, _ := item["quotedMessage"].(map[string]interface{})
-			id_grupo, _ := item["id_grupo"].(string)
 			paymentMessage, _ := item["paymentMessage"].(map[string]interface{})
 			editedIDMessage, ok := item["editedIDMessage"].(string)
 			if !ok {
@@ -1264,7 +1265,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			validNumber, err := checkNumberWithRetry(client, number)
 			if err != nil {
 				fmt.Println(err, "ERRO ISONWHATSAPP")
-				fmt.Println("⛔ -> Numero inválido Erro. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text)
+				fmt.Println("⛔ -> Numero inválido Erro. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text, "| ID Grupo", id_grupo)
 				return
 			}
 			var JID types.JID = types.JID{}
@@ -1272,14 +1273,14 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 				JID = types.JID{User: strings.Replace(id_grupo, "@g.us", "", -1), Server: types.GroupServer}
 			} else {
 				if len(validNumber) == 0 {
-					fmt.Println("⛔ -> Numero inválido. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text)
+					fmt.Println("⛔ -> Numero inválido. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text, "| ID Grupo", id_grupo)
 					return
 				}
 				response := validNumber[0] // Acessa o primeiro item da slicet
 				JID = response.JID
 				IsIn := response.IsIn
 				if !IsIn {
-					fmt.Println("⛔ -> Numero not In WhatsApp. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text)
+					fmt.Println("⛔ -> Numero not In WhatsApp. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text, "| ID Grupo", id_grupo)
 					return
 				}
 			}
