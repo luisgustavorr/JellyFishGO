@@ -404,6 +404,7 @@ func sendToEndPoint(data map[string]any, url string) {
 		return
 	}
 	defer resp.Body.Close()
+	fmt.Println(url)
 	fmt.Println("🌐 -> Resposta Status: [", resp.Status, "] | evento : ", data["evento"], " | clientId :", data["clientId"])
 }
 func getText(message *waE2E.Message) string {
@@ -1208,7 +1209,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			re := regexp.MustCompile("[0-9]+")
 			numberWithOnlyNumbers := strings.Join(re.FindAllString(item["number"].(string), -1), "")
 			if len(numberWithOnlyNumbers) > 2 {
-				if numberWithOnlyNumbers[:2] != "55" {
+				if numberWithOnlyNumbers[:2] != "55" && len(numberWithOnlyNumbers) < 13 {
 					numberWithOnlyNumbers = "55" + numberWithOnlyNumbers
 				}
 			} else {
