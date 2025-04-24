@@ -1213,7 +1213,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			}
 			re := regexp.MustCompile("[0-9]+")
 			numberWithOnlyNumbers := strings.Join(re.FindAllString(item["number"].(string), -1), "")
-			if len(numberWithOnlyNumbers) > 2 {
+			if len(numberWithOnlyNumbers) > 2 && id_grupo == "" {
 				if numberWithOnlyNumbers[:2] != "55" {
 					numberWithOnlyNumbers = "+55" + numberWithOnlyNumbers
 				}
