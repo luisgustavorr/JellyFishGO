@@ -1200,9 +1200,12 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			log.Printf("------------------ %s Inside Go Func Inside FOR (%v,%v)------------------------ \n\n", currentClientID, currentCount, len(sendInfo.Result))
 			focus, _ := item["focus"].(string)
 			text, ok := item["text"].(string)
-			id_grupo, _ := item["id_grupo"].(string)
 			if !ok {
 				text = ""
+			}
+			id_grupo, ok := item["id_grupo"].(string)
+			if !ok {
+				id_grupo = ""
 			}
 			idMensagem, ok := item["idMensagem"].(string)
 			if !ok {
