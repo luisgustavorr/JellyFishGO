@@ -640,7 +640,6 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		if groupInfo != nil {
 			mensagem["nome_grupo"] = groupInfo.GroupName.Name
 		}
-		fmt.Println(fullInfoMessage.Info.Chat.String())
 		mensagem["id_grupo"] = strings.Replace(fullInfoMessage.Info.Chat.String(), "@g.us", "", -1)
 	}
 	var focus = getMessageFocus(focusedMessagesKeys, id_message)
@@ -749,7 +748,7 @@ func isOnWhatsAppSafe(client *whatsmeow.Client, numbers []string) ([]types.IsOnW
 	}
 	return client.IsOnWhatsApp(numbers)
 }
-func checkNumberWithRetry(client *whatsmeow.Client, number string) (resp []types.IsOnWhatsAppResponse, err error) {
+func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool) (resp []types.IsOnWhatsAppResponse, err error) {
 	maxRetries := 3
 	backoff := 1 * time.Second
 
@@ -758,12 +757,13 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string) (resp []types
 		if err == nil && len(responses) > 0 {
 			response := responses[0]
 			fmt.Println("Resposta Recebida", responses)
-			if response.IsIn {
+			if response.IsIn || de_grupo {
 				return responses, nil
 			}
 		}
 		time.Sleep(backoff)
 	}
+
 	if len(number) < 5 {
 		return []types.IsOnWhatsAppResponse{}, fmt.Errorf("error : número pequeno demais, inválido para segunda comparação")
 	}
@@ -1265,16 +1265,16 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			if !ok {
 				editedIDMessage = "" // ou outro valor padrão
 			}
-			validNumber, err := checkNumberWithRetry(client, number)
+			validNumber, err := checkNumberWithRetry(client, number, id_grupo != "")
 			var JID types.JID = types.JID{}
 			if id_grupo != "" {
+				JID = types.JID{User: strings.Replace(id_grupo, "@g.us", "", -1), Server: types.GroupServer}
+			} else {
 				if err != nil {
 					fmt.Println(err, "ERRO ISONWHATSAPP")
 					fmt.Println("⛔ -> Numero inválido Erro. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text, "| ID Grupo", id_grupo)
 					return
 				}
-				JID = types.JID{User: strings.Replace(id_grupo, "@g.us", "", -1), Server: types.GroupServer}
-			} else {
 				if len(validNumber) == 0 {
 					fmt.Println("⛔ -> Numero inválido. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text, "| ID Grupo", id_grupo)
 					return
