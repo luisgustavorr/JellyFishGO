@@ -1251,8 +1251,8 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			text = msg.text
 			number = msg.number
 			fmt.Println("Cliente recuperado :", currentClientID)
-			fmt.Println("Doc padrao recuperado :", documento_padrao)
-			fmt.Println("Files recuperado :", sendInfo.files)
+			// fmt.Println("Doc padrao recuperado :", documento_padrao)
+			// fmt.Println("Files recuperado :", sendInfo.files)
 			var idImage string
 			switch v := item["id_image"].(type) {
 			case string:
