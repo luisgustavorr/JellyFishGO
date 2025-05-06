@@ -210,6 +210,7 @@ func sendFilesProgramados(clientId string, infoObjects string, documento_padrao 
 			return
 		}
 	}
+
 	if files != "" {
 		files_filePath := files
 		file, _ := os.Open(files_filePath)
@@ -221,6 +222,7 @@ func sendFilesProgramados(clientId string, infoObjects string, documento_padrao 
 			return
 		}
 	}
+
 	err := writer.Close()
 	if err != nil {
 		fmt.Println("ERRO1", err)
@@ -1158,9 +1160,8 @@ type singleMessageInfo struct {
 	number      string
 	JID         types.JID
 	messageInfo *waE2E.Message
-
-	Attempts  int32
-	LastError error
+	Attempts    int32
+	LastError   error
 }
 
 func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
@@ -1220,7 +1221,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			} else {
 				numberWithOnlyNumbers = ""
 			}
-			fmt.Println(types.NewJID(numberWithOnlyNumbers, "s.whatsapp.net"))
+
 			number := numberWithOnlyNumbers
 			client := getClient(currentClientID)
 			if client == nil {
@@ -1250,6 +1251,8 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			text = msg.text
 			number = msg.number
 			fmt.Println("Cliente recuperado :", currentClientID)
+			fmt.Println("Doc padrao recuperado :", documento_padrao)
+			fmt.Println("Files recuperado :", sendInfo.files)
 			var idImage string
 			switch v := item["id_image"].(type) {
 			case string:
@@ -1453,6 +1456,7 @@ func enviarMensagem(msg singleMessageInfo, uuid string) error {
 	idMensagem := msg.idMensagem
 	number := msg.number
 	retornoEnvio, err := client.SendMessage(context, JID, msg.messageInfo)
+	fmt.Println(JID)
 	// fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", JID, clientId, text, number)
 	fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", retornoEnvio.ID, clientId, text, number)
 	// removeMensagemPendente(uuid, text, number)
@@ -1650,7 +1654,6 @@ func main() {
 				savePath = normalizeFileName("./arquivos_disparos_programados/padrao_" + dataProgramada + clientId + documento_padrao.Filename)
 				documento_padrao_filePath = savePath
 			}
-			// Salvar o arquivo no caminho especificado
 			if err := c.SaveFile(documento_padrao, savePath); err != nil {
 				fmt.Printf("Erro ao salvar o arquivo: %v", err)
 			}
@@ -1662,8 +1665,12 @@ func main() {
 				}
 			}
 		}
+		fmt.Println("DOCUMENTO PADRÃO", documento_padrao)
+
 		var files *multipart.FileHeader = nil
 		files, _ = c.FormFile("file")
+		fmt.Println("ARQUIVO ZIP ", files)
+
 		var result []map[string]interface{}
 		// Deserializando o JSON para o map
 		err = json.Unmarshal([]byte(infoObjects), &result)
