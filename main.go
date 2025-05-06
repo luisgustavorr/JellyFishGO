@@ -1665,12 +1665,8 @@ func main() {
 				}
 			}
 		}
-		fmt.Println("DOCUMENTO PADRÃO", documento_padrao)
-
 		var files *multipart.FileHeader = nil
 		files, _ = c.FormFile("file")
-		fmt.Println("ARQUIVO ZIP ", files)
-
 		var result []map[string]interface{}
 		// Deserializando o JSON para o map
 		err = json.Unmarshal([]byte(infoObjects), &result)
