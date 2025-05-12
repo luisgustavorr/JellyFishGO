@@ -1689,7 +1689,7 @@ func main() {
 				"message": "Disparo agendado com sucesso",
 			})
 		}
-		log.Printf("ClientId antes da goroutine: %s", clientId)
+
 		go processarGrupoMensagens(sendMessageInfo{clientId,
 			result,
 			documento_padrao,
@@ -1698,13 +1698,11 @@ func main() {
 			noTimeout,
 			dataProgramada,
 			infoObjects, 0, clientId + uuid.New().String()})
-		log.Printf("ClientId dentro da goroutine: %s", clientId)
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Arquivo recebido e enviado no WhatsApp.",
 		})
 	})
 	r.Post("/getQRCode", func(c *fiber.Ctx) error {
-
 		// Recupera o corpo da requisição e faz a bind para a estrutura de dados
 		sendEmail := utils.CopyString(c.FormValue("notifyEmail"))
 		clientId := utils.CopyString(c.FormValue("clientId"))
@@ -2049,9 +2047,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		fmt.Println("Unknown file type")
 	}
 	mimeType := kind.MIME.Value
-	if strings.Contains(nomeArquivo, ".mp3") {
-		mimeType = "audio/mpeg"
-	}
+
 	file.Seek(0, 0)
 	contentBuf := bytes.NewBuffer(nil)
 	if _, err := contentBuf.ReadFrom(file); err != nil {
@@ -2060,7 +2056,9 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 	mensagem_ := proto.Clone(message).(*waE2E.Message)
 	mensagem_.Conversation = nil
 	semExtensao := strings.TrimSuffix(nomeArquivo, filepath.Ext(nomeArquivo))
-	if strings.Contains(nomeArquivo, ".mp3") {
+	if filetype.IsAudio(buf) {
+		mimeType = "audio/mpeg"
+		fmt.Println("Arquivo é um áudio")
 		resp, err := client.Upload(context.Background(), contentBuf.Bytes(), whatsmeow.MediaAudio)
 		if err != nil {
 			fmt.Printf("Erro ao fazer upload da mídia: %v", err)
@@ -2113,22 +2111,6 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 			//JPEGThumbnail: thumbnailBuf.Bytes(), // removed for this example
 		}
 		mensagem_.VideoMessage = imageMsg
-	} else if filetype.IsAudio(buf) {
-		resp, err := client.Upload(context.Background(), contentBuf.Bytes(), whatsmeow.MediaAudio)
-		if err != nil {
-			fmt.Printf("Erro ao fazer upload da mídia: %v", err)
-		}
-		imageMsg := &waE2E.AudioMessage{
-			Mimetype:      proto.String(mimeType),
-			URL:           &resp.URL,
-			DirectPath:    &resp.DirectPath,
-			MediaKey:      resp.MediaKey,
-			FileEncSHA256: resp.FileEncSHA256,
-			FileSHA256:    resp.FileSHA256,
-			FileLength:    &resp.FileLength,
-		}
-		mensagem_.Conversation = nil
-		mensagem_.AudioMessage = imageMsg
 	} else {
 		resp, err := client.Upload(context.Background(), contentBuf.Bytes(), whatsmeow.MediaDocument)
 		if err != nil {
