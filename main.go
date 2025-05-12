@@ -1448,45 +1448,45 @@ func adicionarFocusedMessage(key string) {
 }
 func enviarMensagem(msg singleMessageInfo, uuid string) error {
 	clientId := msg.clientId
-	// client := msg.client
+	client := msg.client
 	JID := msg.JID
-	// context := msg.context
+	context := msg.context
 	text := msg.text
-	// focus := msg.focus
-	// idMensagem := msg.idMensagem
+	focus := msg.focus
+	idMensagem := msg.idMensagem
 	number := msg.number
-	// retornoEnvio, err := client.SendMessage(context, JID, msg.messageInfo)
+	retornoEnvio, err := client.SendMessage(context, JID, msg.messageInfo)
 	fmt.Println(JID)
-	fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", JID, clientId, text, number)
-	// fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", retornoEnvio.ID, clientId, text, number)
-	// // removeMensagemPendente(uuid, text, number)
-	// if err != nil {
-	// 	fmt.Println("Erro ao enviar mensagem", err)
-	// }
-	// if focus != "" {
-	// 	if focusedMessagesKeys == nil {
-	// 		focusedMessagesKeys = []string{}
-	// 	}
-	// 	adicionarFocusedMessage(focus + "_" + retornoEnvio.ID)
-	// }
-	// if idMensagem != "" {
-	// 	data := map[string]any{
-	// 		"evento":   "MENSAGEM_ENVIADA",
-	// 		"clientId": clientId,
-	// 		"data": map[string]string{
-	// 			"newID":  retornoEnvio.ID,
-	// 			"oldID":  idMensagem,
-	// 			"sender": strings.Replace(number, "+", "", -1),
-	// 		},
-	// 	}
-	// 	lastIndex := strings.LastIndex(clientId, "_")
-	// 	sufixo := clientId[lastIndex+1:]
-	// 	baseURL := strings.Split(mapOficial[sufixo], "chatbot")[0]
-	// 	if strings.Contains(baseURL, "disparo") {
-	// 		baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
-	// 	}
-	// 	sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novo-id/")
-	// }
+	// fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", JID, clientId, text, number)
+	fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", retornoEnvio.ID, clientId, text, number)
+	// removeMensagemPendente(uuid, text, number)
+	if err != nil {
+		fmt.Println("Erro ao enviar mensagem", err)
+	}
+	if focus != "" {
+		if focusedMessagesKeys == nil {
+			focusedMessagesKeys = []string{}
+		}
+		adicionarFocusedMessage(focus + "_" + retornoEnvio.ID)
+	}
+	if idMensagem != "" {
+		data := map[string]any{
+			"evento":   "MENSAGEM_ENVIADA",
+			"clientId": clientId,
+			"data": map[string]string{
+				"newID":  retornoEnvio.ID,
+				"oldID":  idMensagem,
+				"sender": strings.Replace(number, "+", "", -1),
+			},
+		}
+		lastIndex := strings.LastIndex(clientId, "_")
+		sufixo := clientId[lastIndex+1:]
+		baseURL := strings.Split(mapOficial[sufixo], "chatbot")[0]
+		if strings.Contains(baseURL, "disparo") {
+			baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
+		}
+		sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novo-id/")
+	}
 	return nil
 }
 func cleanup() {
