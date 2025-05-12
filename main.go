@@ -1349,7 +1349,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 						if documento_padrao != nil {
 							uniqueFileText = ""
 						}
-						tempMessage := prepararMensagemArquivo(uniqueFileText, message, "./uploads/"+currentClientID+fileName, client, currentClientID)
+						tempMessage := prepararMensagemArquivo(uniqueFileText, message, "./uploads/"+currentClientID+fileName, client, currentClientID, msg, sendInfo.UUID)
 						if documento_padrao != nil {
 							msg.messageInfo = tempMessage
 							processarMensagem(msg, sendInfo.UUID)
@@ -1360,7 +1360,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 				}
 			}
 			if documento_padrao != nil {
-				message = prepararMensagemArquivo(text, message, "./uploads/"+currentClientID+documento_padrao.Filename, client, currentClientID)
+				message = prepararMensagemArquivo(text, message, "./uploads/"+currentClientID+documento_padrao.Filename, client, currentClientID, msg, sendInfo.UUID)
 			}
 			if quotedMessage != nil {
 				messageID, ok := quotedMessage["messageID"].(string)
@@ -2027,7 +2027,7 @@ func convertWebPToJPEG(inputPath, outputPath string) error {
 	}
 	return nil
 }
-func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile string, client *whatsmeow.Client, clientId string) *waE2E.Message {
+func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile string, client *whatsmeow.Client, clientId string, msg singleMessageInfo, UUID string) *waE2E.Message {
 	// Abrindo o arquivo
 	file, err := os.Open(chosedFile)
 	if err != nil {
@@ -2072,8 +2072,16 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 			FileSHA256:    resp.FileSHA256,
 			FileLength:    &resp.FileLength,
 		}
+
+		if text != "" {
+			mensagem_.Conversation = &text
+			msg.messageInfo = mensagem_
+			processarMensagem(msg, UUID)
+		}
 		mensagem_.Conversation = nil
+
 		mensagem_.AudioMessage = imageMsg
+
 	} else if filetype.IsImage(buf) {
 		resp, err := client.Upload(context.Background(), contentBuf.Bytes(), whatsmeow.MediaImage)
 		if err != nil {
@@ -2091,6 +2099,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 			FileLength:    &resp.FileLength,
 		}
 		mensagem_.ImageMessage = imageMsg
+		mensagem_.Conversation = nil
 
 	} else if filetype.IsVideo(buf) {
 		resp, err := client.Upload(context.Background(), contentBuf.Bytes(), whatsmeow.MediaVideo)
