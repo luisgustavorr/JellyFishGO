@@ -2065,6 +2065,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		}
 		imageMsg := &waE2E.AudioMessage{
 			Mimetype:      proto.String(mimeType),
+			PTT:           proto.Bool(true),
 			URL:           &resp.URL,
 			DirectPath:    &resp.DirectPath,
 			MediaKey:      resp.MediaKey,
