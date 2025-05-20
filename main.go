@@ -1457,6 +1457,7 @@ func enviarMensagem(msg singleMessageInfo, uuid string) error {
 	number := msg.number
 	retornoEnvio, err := client.SendMessage(context, JID, msg.messageInfo)
 	fmt.Println(JID)
+
 	// fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", JID, clientId, text, number)
 	fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", retornoEnvio.ID, clientId, text, number)
 	// removeMensagemPendente(uuid, text, number)
@@ -1492,8 +1493,29 @@ func enviarMensagem(msg singleMessageInfo, uuid string) error {
 func cleanup() {
 	saveMessagesReceived()
 }
+func cleanUploads() {
+	RemoveContents("./uploads/")
+}
+func RemoveContents(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	names, err := d.Readdirnames(-1)
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		err = os.RemoveAll(filepath.Join(dir, name))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
 func main() {
-
+	cleanUploads()
 	go autoCleanup()
 	// loadMensagensPendentesFromDB()
 	defer cleanup() // Fecha conexões, salva estado, etc.
@@ -1689,7 +1711,6 @@ func main() {
 				"message": "Disparo agendado com sucesso",
 			})
 		}
-
 		go processarGrupoMensagens(sendMessageInfo{clientId,
 			result,
 			documento_padrao,
@@ -2047,7 +2068,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		fmt.Println("Unknown file type")
 	}
 	mimeType := kind.MIME.Value
-
+	fmt.Println("📁 O arquivo é um :", mimeType, " com final ", filepath.Ext(nomeArquivo))
 	file.Seek(0, 0)
 	contentBuf := bytes.NewBuffer(nil)
 	if _, err := contentBuf.ReadFrom(file); err != nil {
@@ -2056,7 +2077,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 	mensagem_ := proto.Clone(message).(*waE2E.Message)
 	mensagem_.Conversation = nil
 	semExtensao := strings.TrimSuffix(nomeArquivo, filepath.Ext(nomeArquivo))
-	if filetype.IsAudio(buf) {
+	if filetype.IsAudio(buf) || filepath.Ext(nomeArquivo) == ".mp3" {
 		mimeType = "audio/mpeg"
 		fmt.Println("Arquivo é um áudio")
 		resp, err := client.Upload(context.Background(), contentBuf.Bytes(), whatsmeow.MediaAudio)
@@ -2168,6 +2189,5 @@ func formatPhoneNumber(phone string) string {
 	} else {
 		formatted += phone[4:8] + "-" + phone[8:]
 	}
-
 	return formatted
 }
