@@ -1321,9 +1321,6 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 					fmt.Println("FORMATADO ->", err)
 				}
 			}
-			if text == "" {
-				return
-			}
 			if leitorZip != nil {
 				for _, arquivo := range leitorZip.File {
 					if strings.Contains(arquivo.Name, "documento_"+idImage) {
@@ -1668,7 +1665,7 @@ func main() {
 		var documento_padrao *multipart.FileHeader = nil
 		documento_padrao, err = c.FormFile("documento_padrao")
 		if err != nil {
-			fmt.Println("Nenhum documento padrão enviado.", err)
+			fmt.Println("📁 ❌-> Nenhum documento padrão enviado.", err)
 		}
 		if documento_padrao != nil {
 			savePath := "./uploads/" + clientId + documento_padrao.Filename
