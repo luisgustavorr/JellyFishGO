@@ -805,6 +805,9 @@ func tryConnecting(clientId string) *whatsmeow.Client {
 			clientMap[clientId] = client
 			clientsMutex.Unlock()
 			fmt.Println("🎉 -> CLIENTE CONECTADO", clientId)
+			if strings.Contains(clientId, "chat") {
+				setStatus(client, "conectado", types.JID{})
+			}
 		case *events.Receipt:
 			if strings.Contains(clientId, "chat") {
 				handleSeenMessage(v, clientId)
@@ -828,9 +831,6 @@ func tryConnecting(clientId string) *whatsmeow.Client {
 		clientsMutex.Lock()
 		defer clientsMutex.Unlock()
 		clientMap[clientId] = client
-		if strings.Contains(clientId, "chat") {
-			setStatus(client, "conectado", types.JID{})
-		}
 		if err != nil {
 			fmt.Println("erro pegandoDevice", err)
 		}
@@ -1762,6 +1762,9 @@ func main() {
 				clientMap[clientId] = client
 				clientsMutex.Unlock()
 				fmt.Println("🎉 -> CLIENTE CONECTADO", clientId)
+				if strings.Contains(clientId, "chat") {
+					setStatus(client, "conectado", types.JID{})
+				}
 				data := map[string]any{
 					"evento":   "CLIENTE_CONECTADO",
 					"clientId": clientId,
