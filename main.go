@@ -1994,6 +1994,16 @@ func desconctarCliente(clientId string) bool {
 	fmt.Println("⛔ -> CLIENTE DESCONECTADO", clientId)
 	sendEmailDisconnection(clientId)
 	client := getClient(clientId)
+	data := map[string]any{
+		"evento":   "CLIENTE_DESCONECTADO",
+		"clientId": clientId,
+		"data":     "CLIENTE_DESCONECTADO",
+	}
+	delete(clientMap, clientId)
+	lastIndex := strings.LastIndex(clientId, "_")
+	sufixo := clientId[lastIndex+1:]
+	baseURL := mapOficial[sufixo]
+	sendToEndPoint(data, baseURL)
 	if client == nil {
 		// Reconecta sob demanda
 		client = tryConnecting(clientId)
@@ -2007,16 +2017,7 @@ func desconctarCliente(clientId string) bool {
 		defer clientsMutex.Unlock()
 		client.Logout()
 	}
-	data := map[string]any{
-		"evento":   "CLIENTE_DESCONECTADO",
-		"clientId": clientId,
-		"data":     "CLIENTE_DESCONECTADO",
-	}
-	delete(clientMap, clientId)
-	lastIndex := strings.LastIndex(clientId, "_")
-	sufixo := clientId[lastIndex+1:]
-	baseURL := mapOficial[sufixo]
-	sendToEndPoint(data, baseURL)
+
 	return true
 }
 func convertWebPToJPEG(inputPath, outputPath string) error {
