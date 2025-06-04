@@ -7,3 +7,6 @@ uploads
 arquivos_disparos_programados/*
 *.db
 .qodo
+heap
+profile
+trace

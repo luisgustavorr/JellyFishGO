@@ -33,6 +33,7 @@ import (
 	_ "net/http/pprof"
 
 	_ "github.com/go-sql-driver/mysql"
+	json "github.com/goccy/go-json"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/pprof"
@@ -40,7 +41,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/h2non/filetype"
 	"github.com/joho/godotenv"
-	jsoniter "github.com/json-iterator/go"
 	_ "github.com/mattn/go-sqlite3" // Importação do driver SQLite
 	"github.com/skip2/go-qrcode"
 	"go.mau.fi/whatsmeow"
@@ -48,7 +48,6 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
-
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
@@ -57,19 +56,16 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-var json = jsoniter.ConfigFastest
 var (
 	clientMap    = make(map[string]*whatsmeow.Client)
 	clientsMutex sync.Mutex // Mutex simples
 )
 var mapOficial, _ = loadConfigInicial("spacemid_luis:G4l01313@tcp(pro107.dnspro.com.br:3306)/spacemid_sistem_adm")
-var messagesToSend = make(map[string][]*waE2E.Message)
 var focusedMessagesKeys = []string{}
-var processedMessages = make(map[string]bool)
 var _ = godotenv.Load()
 
 var MODO_DESENVOLVIMENTO = os.Getenv("MODO_DESENVOLVIMENTO")
-var desenvolvilemto = MODO_DESENVOLVIMENTO == "1"
+var desenvolvimento = MODO_DESENVOLVIMENTO == "1"
 
 type MessagesQueue struct {
 	bufferLock     sync.Mutex
@@ -90,7 +86,7 @@ func getGroupProfilePicture(client *whatsmeow.Client, groupJID types.JID) *types
 		return nil
 	}
 	groupPicCache.Store(groupJID, pictureInfo)
-	time.AfterFunc(1*time.Hour, func() {
+	time.AfterFunc(30*time.Minute, func() {
 		groupPicCache.Delete(groupJID)
 	})
 	return pictureInfo
@@ -156,10 +152,7 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 func gerarTarefasProgramadas() {
 	fmt.Println("Pegando tarefas")
 	var err error
-	dbPool, err = sql.Open("sqlite3", "./manager.db")
-	if err != nil {
-		log.Println("ERRO AO ADD TAREFA DB", err)
-	}
+	initManagerDBPool()
 	dbPool.SetMaxOpenConns(10)
 	db := dbPool
 	createTableSQL := `CREATE TABLE IF NOT EXISTS tarefas_agendadas (
@@ -278,6 +271,17 @@ func iniciarTarefaProgramada(clientId string, dataDesejada string, infoObjects s
 		removerTarefaProgramadaDB(clientId, dataDesejada, documento_padrao, files)
 	})
 }
+func initManagerDBPool() {
+	var err error
+	if dbPool == nil {
+		dbPool, err = sql.Open("sqlite3", "./manager.db")
+		if err != nil {
+			log.Fatal(err)
+		}
+		dbPool.SetMaxOpenConns(5) // Limite de conexões
+	}
+
+}
 func removerTarefaProgramadaDB(clientId string, dataDesejada string, documento_padrao string, files string) {
 	if documento_padrao != "" {
 		os.Remove(documento_padrao)
@@ -286,12 +290,7 @@ func removerTarefaProgramadaDB(clientId string, dataDesejada string, documento_p
 		os.Remove(files)
 	}
 	var err error
-	dbPool, err = sql.Open("sqlite3", "./manager.db")
-
-	if err != nil {
-		log.Println("ERRO AO ADD TAREFA DB", err)
-	}
-	dbPool.SetMaxOpenConns(10) // Ajuste co
+	initManagerDBPool()
 	newDB := dbPool
 	createTableSQL := `CREATE TABLE IF NOT EXISTS tarefas_agendadas (
 		clientId TEXT,
@@ -313,10 +312,8 @@ func removerTarefaProgramadaDB(clientId string, dataDesejada string, documento_p
 	}
 }
 func addTarefaProgramadaDB(clientId string, dataDesejada string, infoObjects string, documento_padrao string, files string) {
-	newDB, err := sql.Open("sqlite3", "./manager.db")
-	if err != nil {
-		log.Println("ERRO AO ADD TAREFA DB", err)
-	}
+	var err error
+	initManagerDBPool()
 	createTableSQL := `CREATE TABLE IF NOT EXISTS tarefas_agendadas (
 		clientId TEXT,
 		data_desejada TEXT,
@@ -324,14 +321,14 @@ func addTarefaProgramadaDB(clientId string, dataDesejada string, infoObjects str
 		documento_padrao TEXT,
 		files TEXT
 	);`
-	_, err = newDB.Exec(createTableSQL)
+	_, err = dbPool.Exec(createTableSQL)
 	if err != nil {
 		log.Println("Erro ao criar TABELA", err)
 	}
-	defer newDB.Close()
+	defer dbPool.Close()
 	// Usar a consulta parametrizada
 	query := "INSERT INTO `tarefas_agendadas` ( `clientId`, `data_desejada`, `infoObjects`,`documento_padrao`,`files`) VALUES ( ?, ?, ?,?,?);"
-	_, err = newDB.Exec(query, clientId, dataDesejada, infoObjects, documento_padrao, files)
+	_, err = dbPool.Exec(query, clientId, dataDesejada, infoObjects, documento_padrao, files)
 	if err != nil {
 		log.Println("Erro ao executar a consulta:", err)
 	}
@@ -367,10 +364,8 @@ func loadConfigInicial(dsn string) (map[string]string, map[string]string) {
 	if err != nil {
 		log.Fatal("Erro ao carregar o arquivo .env")
 	}
-
-	fmt.Println("MODO DESENVOLVIMENTO", desenvolvilemto)
-
-	if desenvolvilemto {
+	fmt.Println("MODO DESENVOLVIMENTO", desenvolvimento)
+	if desenvolvimento {
 		return mapDesenvolvimento, mapDesenvolvimento
 	}
 	return mapProducao, mapDesenvolvimento
@@ -499,8 +494,9 @@ func getSender(senderNumber string) string {
 
 var messagesQueue = NewQueue()
 var (
-	sentMessages = make(map[string]bool)
-	pendingSync  = make(chan string, 1000)
+	sentMessages     = make(map[string]time.Time)
+	sentMessagesLock sync.Mutex
+	pendingSync      = make(chan string, 1000)
 )
 
 func requestLogger(c *fiber.Ctx) error {
@@ -683,7 +679,8 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	} else {
 
 		var uniqueMessageID string = strings.Replace(id_message+"_"+senderNumber+"_"+clientId, " ", "", -1)
-		if val, exists := sentMessages[uniqueMessageID]; exists && val && edited == 0 {
+
+		if _, exists := sentMessages[uniqueMessageID]; exists && edited == 0 {
 			fmt.Println("❌ -> Mensagem REPETIDA:", id_message, senderName, senderNumber, clientId, text)
 			fmt.Println("!--------------------->MENSAGEM COM ID JÁ ENVIADO<---------------------!", sentMessages[uniqueMessageID])
 			return false
@@ -691,17 +688,14 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		var MessageID []types.MessageID = []types.MessageID{id_message}
 		client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
 		if media != "" || text != "" || contactMessage != nil {
-			if messagesToSend[clientId] == nil {
-				messagesToSend[clientId] = []*waE2E.Message{}
-			}
-			messagesToSend[clientId] = append(messagesToSend[clientId], message)
 			messagesQueue.AddMessage(clientId, objetoMensagens, senderNumber)
 			log.Printf("------------------ %s Receiving Message Event | By Group : %v ------------------------ \n\n", clientId, groupMessage)
 			fmt.Println("📩 -> Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text, " | By Group:", groupMessage)
 			fmt.Println("Mensagens registradas : ", len(sentMessages)+1)
-			sentMessages[uniqueMessageID] = true
+			sentMessagesLock.Lock()
+			sentMessages[uniqueMessageID] = time.Now()
+			sentMessagesLock.Unlock()
 			pendingSync <- id_message + "_" + senderNumber + "_" + clientId
-			processedMessages[clientId+"_"+senderNumber+"_"+id_message] = true
 		}
 	}
 	return true
@@ -988,7 +982,6 @@ func saveMessagesReceived() {
 func loadMessagesReceiveds() {
 	var err error
 	db, err := sql.Open("sqlite3", "./messages.db")
-	db.SetMaxOpenConns(10) // Ajuste co
 	if err != nil {
 		safePanic("ERRO AO ADD TAREFA DB", err)
 	}
@@ -1009,7 +1002,7 @@ func loadMessagesReceiveds() {
 			if err := result.Scan(&id); err != nil {
 				log.Println(err)
 			}
-			sentMessages[id] = true
+			sentMessages[id] = time.Now()
 		}
 
 	}
@@ -1166,7 +1159,7 @@ type singleMessageInfo struct {
 
 func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 	fmt.Println(sendInfoMain.UUID)
-	workers := make(chan struct{}, 10)
+	workers := make(chan struct{}, 20)
 	limiter := rate.NewLimiter(rate.Every(2*time.Second), 1)
 	var wg sync.WaitGroup
 	fmt.Printf("Processando grupo de %v mensagens para %s \n", len(sendInfoMain.Result), sendInfoMain.ClientIdLocal)
@@ -1511,8 +1504,24 @@ func RemoveContents(dir string) error {
 	}
 	return nil
 }
+func cleanUpSentMessages() {
+	sentMessagesLock.Lock()
+	defer sentMessagesLock.Unlock()
+	now := time.Now()
+	for id, timestamp := range sentMessages {
+		if now.Sub(timestamp) > 24*time.Hour {
+			delete(sentMessages, id)
+		}
+	}
+}
 func main() {
 	cleanUploads()
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		for range ticker.C {
+			cleanUpSentMessages()
+		}
+	}()
 	go autoCleanup()
 	// loadMensagensPendentesFromDB()
 	defer cleanup() // Fecha conexões, salva estado, etc.
@@ -1583,6 +1592,51 @@ func main() {
 		}
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Cliente conectado",
+		})
+	})
+	r.Post("/checknumber", func(c *fiber.Ctx) error {
+		clientId := utils.CopyString(c.FormValue("clientId"))
+		number := utils.CopyString(c.FormValue("numero"))
+		re := regexp.MustCompile("[0-9]+")
+		numberWithOnlyNumbers := strings.Join(re.FindAllString(number, -1), "")
+		client := getClient(clientId)
+		if client == nil {
+			client = tryConnecting(clientId)
+			if client == nil {
+				return fmt.Errorf("cliente não disponível")
+			}
+		}
+		if client == nil {
+			return c.Status(500).JSON(fiber.Map{
+				"message": "Cliente não conectado",
+			})
+		}
+		validNumber, err := checkNumberWithRetry(client, numberWithOnlyNumbers, false)
+		if err != nil {
+			fmt.Println("Erro check", err)
+			return c.Status(500).JSON(fiber.Map{
+				"message": "Numero inválido ERRO",
+			})
+
+		}
+		fmt.Println("Numero Válido", validNumber)
+		if len(validNumber) == 0 {
+			fmt.Println("⛔ -> Numero inválido. ClientId: ", clientId, " | Numero: ", number)
+			return c.Status(500).JSON(fiber.Map{
+				"message": "Numero inválido",
+			})
+		}
+		response := validNumber[0] // Acessa o primeiro item da slicet
+		IsIn := response.IsIn
+		if !IsIn {
+			fmt.Println("⛔ -> Numero not In WhatsApp. ClientId: ", clientId, " | Numero: ", number)
+			return c.Status(500).JSON(fiber.Map{
+				"message": "Numero inválido",
+			})
+		}
+
+		return c.Status(200).JSON(fiber.Map{
+			"message": "Número Válido",
 		})
 	})
 	r.Post("/deleteMessage", func(c *fiber.Ctx) error {
@@ -2017,7 +2071,6 @@ func desconctarCliente(clientId string) bool {
 		defer clientsMutex.Unlock()
 		client.Logout()
 	}
-
 	return true
 }
 func convertWebPToJPEG(inputPath, outputPath string) error {
@@ -2042,13 +2095,21 @@ func convertWebPToJPEG(inputPath, outputPath string) error {
 	}
 	defer outFile.Close()
 	// Codifica a imagem como JPEG e salva no arquivo
-	err = jpeg.Encode(outFile, img, &jpeg.Options{Quality: 90})
+	err = jpeg.Encode(outFile, img, &jpeg.Options{Quality: 80})
 	if err != nil {
 		fmt.Println("Erro ao converter para JPEG:", err)
 		return err
 	}
 	return nil
 }
+
+var bufferPool = sync.Pool{
+	New: func() interface{} {
+		s := make([]byte, 0, 15<<20) // 15mb
+		return &s                    // Retorna PONTEIRO para slice
+	},
+}
+
 func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile string, client *whatsmeow.Client, clientId string, msg singleMessageInfo, UUID string) *waE2E.Message {
 	// Abrindo o arquivo
 	file, err := os.Open(chosedFile)
@@ -2057,31 +2118,43 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 	}
 	defer file.Close()
 	// Detectando o tipo MIME
-	buf := make([]byte, 512) // O pacote mime usa os primeiros 512 bytes para detectar o tipo MIME
-	_, err = file.Read(buf)
+	bufPtr := bufferPool.Get().(*[]byte)
+	buf := *bufPtr
+	defer func() {
+		*bufPtr = buf[:0]
+		bufferPool.Put(bufPtr)
+	}()
+	fileInfo, _ := file.Stat()
+	fileSize := fileInfo.Size()
+	if cap(buf) < int(fileSize) {
+		buf = make([]byte, fileSize)
+	} else {
+		// Reutiliza capacidade existente
+		buf = buf[:fileSize]
+	}
+	_, err = io.ReadFull(file, buf)
 	if err != nil {
 		fmt.Printf("Erro ao ler o arquivo: %v", err)
 	}
-	nomeArquivo := strings.Replace(strings.Split(chosedFile, "/")[len(strings.Split(chosedFile, "/"))-1], clientId, "", -1)
-
-	kind, _ := filetype.Match(buf)
+	nomeArquivo := filepath.Base(chosedFile)
+	nomeArquivo = strings.ReplaceAll(nomeArquivo, clientId, "")
+	kind, err := filetype.Match(buf[:512])
+	if err != nil {
+		fmt.Printf("Erro ao detectar tipo do arquivo: %v", err)
+		return nil
+	}
 	if kind == filetype.Unknown {
-		fmt.Println("Unknown file type")
+		fmt.Println("Tipo de arquivo desconhecido")
 	}
 	mimeType := kind.MIME.Value
 	fmt.Println("📁 O arquivo é um :", mimeType, " com final ", filepath.Ext(nomeArquivo))
-	file.Seek(0, 0)
-	contentBuf := bytes.NewBuffer(nil)
-	if _, err := contentBuf.ReadFrom(file); err != nil {
-		fmt.Printf("Erro ao ler o arquivo completo: %v", err)
-	}
 	mensagem_ := proto.Clone(message).(*waE2E.Message)
 	mensagem_.Conversation = nil
 	semExtensao := strings.TrimSuffix(nomeArquivo, filepath.Ext(nomeArquivo))
 	if filetype.IsAudio(buf) || filepath.Ext(nomeArquivo) == ".mp3" {
 		mimeType = "audio/mpeg"
 		fmt.Println("Arquivo é um áudio")
-		resp, err := client.Upload(context.Background(), contentBuf.Bytes(), whatsmeow.MediaAudio)
+		resp, err := client.Upload(context.Background(), buf, whatsmeow.MediaAudio)
 		if err != nil {
 			fmt.Printf("Erro ao fazer upload da mídia: %v", err)
 		}
@@ -2106,7 +2179,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		mensagem_.AudioMessage = imageMsg
 
 	} else if filetype.IsImage(buf) {
-		resp, err := client.Upload(context.Background(), contentBuf.Bytes(), whatsmeow.MediaImage)
+		resp, err := client.Upload(context.Background(), buf, whatsmeow.MediaImage)
 		if err != nil {
 			fmt.Printf("Erro ao fazer upload da mídia: %v", err)
 		}
@@ -2125,7 +2198,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		mensagem_.Conversation = nil
 
 	} else if filetype.IsVideo(buf) {
-		resp, err := client.Upload(context.Background(), contentBuf.Bytes(), whatsmeow.MediaVideo)
+		resp, err := client.Upload(context.Background(), buf, whatsmeow.MediaVideo)
 		if err != nil {
 			fmt.Printf("Erro ao fazer upload da mídia: %v", err)
 		}
@@ -2144,7 +2217,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		}
 		mensagem_.VideoMessage = imageMsg
 	} else {
-		resp, err := client.Upload(context.Background(), contentBuf.Bytes(), whatsmeow.MediaDocument)
+		resp, err := client.Upload(context.Background(), buf, whatsmeow.MediaDocument)
 		if err != nil {
 			fmt.Printf("Erro ao fazer upload da mídia: %v", err)
 		}
@@ -2180,10 +2253,7 @@ func formatPhoneNumber(phone string) string {
 	if len(phone) < 12 || len(phone) > 13 {
 		return "Número inválido"
 	}
-
-	// Adiciona o "+"
 	formatted := "+" + phone[:2] + " " + phone[2:4] + " "
-
 	// Verifica se é um número de celular (tem o nono dígito)
 	if len(phone) == 13 {
 		formatted += phone[4:5] + " " + phone[5:9] + "-" + phone[9:]
