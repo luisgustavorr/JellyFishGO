@@ -36,7 +36,6 @@ import (
 	json "github.com/goccy/go-json"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/pprof"
 	"github.com/gofiber/fiber/v2/utils"
 	"github.com/google/uuid"
 	"github.com/h2non/filetype"
@@ -1556,7 +1555,7 @@ func main() {
 	var a string
 
 	r.Use(cors.New())
-	r.Use(pprof.New())
+	// r.Use(pprof.New())
 	r.Use(requestLogger)
 	// r.LoadHTMLGlob("templates/*.html")
 	r.Get("/:a", func(c *fiber.Ctx) error {
