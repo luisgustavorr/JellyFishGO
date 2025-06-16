@@ -36,6 +36,7 @@ import (
 	json "github.com/goccy/go-json"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/pprof"
 	"github.com/gofiber/fiber/v2/utils"
 	"github.com/google/uuid"
 	"github.com/h2non/filetype"
@@ -120,6 +121,7 @@ func (c *MessagesQueue) AddMessage(clientID string, message map[string]interface
 		}
 	}(clientID)) // <--- clientID é capturado como valor aqui!
 }
+
 func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 	c.bufferLock.Lock()
 	defer c.bufferLock.Unlock()
@@ -152,6 +154,7 @@ func gerarTarefasProgramadas() {
 	fmt.Println("Pegando tarefas")
 	var err error
 	initManagerDBPool()
+	defer dbPool.Close()
 	dbPool.SetMaxOpenConns(10)
 	db := dbPool
 	createTableSQL := `CREATE TABLE IF NOT EXISTS tarefas_agendadas (
@@ -290,6 +293,7 @@ func removerTarefaProgramadaDB(clientId string, dataDesejada string, documento_p
 	}
 	var err error
 	initManagerDBPool()
+	defer dbPool.Close()
 	newDB := dbPool
 	createTableSQL := `CREATE TABLE IF NOT EXISTS tarefas_agendadas (
 		clientId TEXT,
@@ -313,6 +317,7 @@ func removerTarefaProgramadaDB(clientId string, dataDesejada string, documento_p
 func addTarefaProgramadaDB(clientId string, dataDesejada string, infoObjects string, documento_padrao string, files string) {
 	var err error
 	initManagerDBPool()
+	defer dbPool.Close()
 	createTableSQL := `CREATE TABLE IF NOT EXISTS tarefas_agendadas (
 		clientId TEXT,
 		data_desejada TEXT,
@@ -324,7 +329,6 @@ func addTarefaProgramadaDB(clientId string, dataDesejada string, infoObjects str
 	if err != nil {
 		log.Println("Erro ao criar TABELA", err)
 	}
-	defer dbPool.Close()
 	// Usar a consulta parametrizada
 	query := "INSERT INTO `tarefas_agendadas` ( `clientId`, `data_desejada`, `infoObjects`,`documento_padrao`,`files`) VALUES ( ?, ?, ?,?,?);"
 	_, err = dbPool.Exec(query, clientId, dataDesejada, infoObjects, documento_padrao, files)
@@ -1555,7 +1559,7 @@ func main() {
 	var a string
 
 	r.Use(cors.New())
-	// r.Use(pprof.New())
+	r.Use(pprof.New())
 	r.Use(requestLogger)
 	// r.LoadHTMLGlob("templates/*.html")
 	r.Get("/:a", func(c *fiber.Ctx) error {
@@ -1616,7 +1620,6 @@ func main() {
 			return c.Status(500).JSON(fiber.Map{
 				"message": "Numero inválido ERRO",
 			})
-
 		}
 		fmt.Println("Numero Válido", validNumber)
 		if len(validNumber) == 0 {
