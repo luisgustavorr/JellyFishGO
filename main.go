@@ -427,6 +427,7 @@ func getText(message *waE2E.Message) string {
 	return text
 }
 func getMedia(evt *events.Message, clientId string) (string, string) {
+	ctx := context.Background()
 	client := getClient(clientId)
 	if client == nil {
 		// Reconecta sob demanda
@@ -440,7 +441,8 @@ func getMedia(evt *events.Message, clientId string) (string, string) {
 	if imgMsg := evt.Message.GetImageMessage(); imgMsg != nil {
 		mimeType = imgMsg.GetMimetype()
 		mediaMessage := imgMsg
-		data, err := client.Download(mediaMessage)
+
+		data, err := client.Download(ctx, mediaMessage)
 		if err != nil {
 			fmt.Printf("Erro ao baixar a mídia: %v", err)
 		}
@@ -450,7 +452,7 @@ func getMedia(evt *events.Message, clientId string) (string, string) {
 	if vidMsg := evt.Message.GetVideoMessage(); vidMsg != nil {
 		mimeType = vidMsg.GetMimetype()
 		mediaMessage := vidMsg
-		data, err := client.Download(mediaMessage)
+		data, err := client.Download(ctx, mediaMessage)
 		if err != nil {
 			fmt.Printf("Erro ao baixar a mídia: %v", err)
 		}
@@ -460,7 +462,7 @@ func getMedia(evt *events.Message, clientId string) (string, string) {
 	if audioMsg := evt.Message.GetAudioMessage(); audioMsg != nil {
 		mimeType = audioMsg.GetMimetype()
 		mediaMessage := audioMsg
-		data, err := client.Download(mediaMessage)
+		data, err := client.Download(ctx, mediaMessage)
 		if err != nil {
 			fmt.Printf("Erro ao baixar a mídia: %v", err)
 		}
@@ -470,7 +472,7 @@ func getMedia(evt *events.Message, clientId string) (string, string) {
 	if stickerMsg := evt.Message.GetStickerMessage(); stickerMsg != nil {
 		mimeType = stickerMsg.GetMimetype()
 		mediaMessage := stickerMsg
-		data, err := client.Download(mediaMessage)
+		data, err := client.Download(ctx, mediaMessage)
 		if err != nil {
 			fmt.Printf("Erro ao baixar a mídia: %v", err)
 		}
@@ -480,7 +482,7 @@ func getMedia(evt *events.Message, clientId string) (string, string) {
 	if docMsg := evt.Message.GetDocumentMessage(); docMsg != nil {
 		mimeType = docMsg.GetMimetype()
 		mediaMessage := docMsg
-		data, err := client.Download(mediaMessage)
+		data, err := client.Download(ctx, mediaMessage)
 		if err != nil {
 			fmt.Printf("Erro ao baixar a mídia: %v", err)
 		}
@@ -781,13 +783,15 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool
 	return []types.IsOnWhatsAppResponse{}, fmt.Errorf("falha após %d tentativas: %v", maxRetries, err)
 }
 func tryConnecting(clientId string) *whatsmeow.Client {
+	context := context.Background()
+
 	dbLog := waLog.Stdout("Database", "INFO", true)
-	container, err := sqlstore.New("sqlite3", "file:./clients_db/"+clientId+".db?_foreign_keys=on", dbLog)
+	container, err := sqlstore.New(context, "sqlite3", "file:./clients_db/"+clientId+".db?_foreign_keys=on", dbLog)
 	if err != nil {
 		fmt.Println(err)
 		return nil
 	}
-	deviceStore, err := container.GetFirstDevice()
+	deviceStore, err := container.GetFirstDevice(context)
 	if err != nil {
 		fmt.Println("erro pegandoDevice", err)
 		return nil
@@ -1777,6 +1781,8 @@ func main() {
 		})
 	})
 	r.Post("/getQRCode", func(c *fiber.Ctx) error {
+		ctx := context.Background()
+
 		// Recupera o corpo da requisição e faz a bind para a estrutura de dados
 		sendEmail := utils.CopyString(c.FormValue("notifyEmail"))
 		clientId := utils.CopyString(c.FormValue("clientId"))
@@ -1794,11 +1800,11 @@ func main() {
 		clientsMutex.Unlock() // Libera o mutex após verificar o clientId
 		qrCode := c.FormValue("qrCode") == "true"
 		dbLog := waLog.Stdout("Database", "INFO", true)
-		container, err := sqlstore.New("sqlite3", "file:./clients_db/"+clientId+".db?_foreign_keys=on", dbLog)
+		container, err := sqlstore.New(ctx, "sqlite3", "file:./clients_db/"+clientId+".db?_foreign_keys=on", dbLog)
 		if err != nil {
 			fmt.Println(err)
 		}
-		deviceStore, err := container.GetFirstDevice()
+		deviceStore, err := container.GetFirstDevice(ctx)
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -1854,7 +1860,7 @@ func main() {
 		})
 		if client.Store.ID == nil {
 			// Não há ID armazenado, novo login
-			qrChan, _ := client.GetQRChannel(context.Background())
+			qrChan, _ := client.GetQRChannel(ctx)
 			// Conecte o cliente
 			err = client.Connect()
 			if err != nil {
@@ -2047,6 +2053,8 @@ func sendEmailDisconnection(clientId string) {
 	}
 }
 func desconctarCliente(clientId string) bool {
+	ctx := context.Background()
+
 	fmt.Println("⛔ -> CLIENTE DESCONECTADO", clientId)
 	sendEmailDisconnection(clientId)
 	client := getClient(clientId)
@@ -2071,7 +2079,7 @@ func desconctarCliente(clientId string) bool {
 	if client != nil {
 		clientsMutex.Lock()
 		defer clientsMutex.Unlock()
-		client.Logout()
+		client.Logout(ctx)
 	}
 	return true
 }
