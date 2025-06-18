@@ -554,16 +554,18 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	var senderName string = fullInfoMessage.Info.PushName
 	var text string = getText(message)
 	var fromMe = fullInfoMessage.Info.IsFromMe
-	var senderNumber string = getSender(fullInfoMessage.Info.Sender.User)
+	ctx := context.Background()
+	sender := fullInfoMessage.Info.Sender
+	var senderNumber string = getSender(sender.User)
 	if !fromMe {
-		ctx := context.Background()
-		sender := fullInfoMessage.Info.Sender
-		if sender.Server == types.DefaultUserServer {
+		fmt.Println("Procurando o LID Servers:", sender.Server, types.DefaultUserServer)
+		if sender.Server == "lid" {
 			pn, err := client.Store.LIDs.GetPNForLID(ctx, sender)
 			if err != nil {
 				client.Log.Warnf("Failed to get LID for %s: %v", sender, err)
 			} else if !pn.IsEmpty() {
 				fmt.Println("SUCESSO PEGANDO COM LID", pn.User)
+				fullInfoMessage.Info.Sender = pn
 				senderNumber = getSender(pn.User)
 			}
 		}
@@ -594,6 +596,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	if fromMe {
 		senderNumber = fullInfoMessage.Info.Chat.User
 	}
+	fmt.Println(JID)
 	params := &whatsmeow.GetProfilePictureParams{}
 	profilePic, _ := client.GetProfilePictureInfo(JID, params)
 	if editedInfo != "" {
