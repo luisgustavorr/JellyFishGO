@@ -556,10 +556,15 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	var text string = getText(message)
 	var fromMe = fullInfoMessage.Info.IsFromMe
 	var senderNumber string = getSender(fullInfoMessage.Info.Sender.User)
+	if !fromMe {
+		fmt.Println("📩 -> Mensagem RECEBIDA TEMPORARIO LOG:", senderName, senderNumber, clientId, text, " | By Group:", groupMessage)
+
+	}
 	if utf8.RuneCountInString(senderNumber) > 13 {
 		fmt.Println("------> Sender Number Grande Demais <------")
 		return false
 	}
+
 	var id_message string = fullInfoMessage.Info.ID
 	var datetime string = fullInfoMessage.Info.Timestamp.String()
 	var editedInfo = message.GetProtocolMessage().GetKey().GetId()
