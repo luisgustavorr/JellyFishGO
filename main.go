@@ -24,7 +24,6 @@ import (
 
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"mime/multipart"
 
@@ -557,14 +556,19 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	var fromMe = fullInfoMessage.Info.IsFromMe
 	var senderNumber string = getSender(fullInfoMessage.Info.Sender.User)
 	if !fromMe {
-		fmt.Println("📩 -> Mensagem RECEBIDA TEMPORARIO LOG:", senderName, senderNumber, clientId, text, " | By Group:", groupMessage)
-
+		ctx := context.Background()
+		sender := fullInfoMessage.Info.Sender
+		if sender.Server == types.DefaultUserServer {
+			pn, err := client.Store.LIDs.GetPNForLID(ctx, sender)
+			if err != nil {
+				client.Log.Warnf("Failed to get LID for %s: %v", sender, err)
+			} else if !pn.IsEmpty() {
+				fmt.Println("SUCESSO PEGANDO COM LID", pn.User)
+				senderNumber = getSender(pn.User)
+			}
+		}
+		fmt.Println("📩 -> Mensagem RECEBIDA TEMPORARIO LOG:", senderName, senderNumber, clientId, text, fullInfoMessage.Info.Sender, " | By Group:", groupMessage)
 	}
-	if utf8.RuneCountInString(senderNumber) > 13 {
-		fmt.Println("------> Sender Number Grande Demais <------")
-		return false
-	}
-
 	var id_message string = fullInfoMessage.Info.ID
 	var datetime string = fullInfoMessage.Info.Timestamp.String()
 	var editedInfo = message.GetProtocolMessage().GetKey().GetId()
@@ -764,12 +768,24 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool
 			response := responses[0]
 			fmt.Println("Resposta Recebida", responses)
 			if response.IsIn || de_grupo {
+				// ctx := context.Background()
+				// lidForPN, err := client.Store.LIDs.GetLIDForPN(ctx, response.JID)
+				// if err != nil {
+				// 	client.Log.Warnf("Failed to get LID for %s: %v", response.JID, err)
+				// } else if !lidForPN.IsEmpty() {
+				// 	fmt.Println("✅!!!! LID RECUPERADO com sucesso !!!!", lidForPN)
+				// }
+				// fmt.Println("✅!!!! LID RECUPERADO com sucesso !!!!", lidForPN,response.JID)
+
 				return responses, nil
+
 			}
 		}
 		time.Sleep(backoff)
 	}
 
+	//LID : 229724966150315
+	//JID : +55 35 9238-5740
 	if len(number) < 5 {
 		return []types.IsOnWhatsAppResponse{}, fmt.Errorf("error : número pequeno demais, inválido para segunda comparação")
 	}
@@ -1612,6 +1628,16 @@ func main() {
 		re := regexp.MustCompile("[0-9]+")
 		numberWithOnlyNumbers := strings.Join(re.FindAllString(number, -1), "")
 		client := getClient(clientId)
+		// lidJID := types.NewJID(number, "lid")
+		// ctx := context.Background()
+		// pn, err := client.Store.LIDs.GetPNForLID(ctx, lidJID)
+		// if err != nil {
+		// 	log.Println("Erro ao obter número de telefone:", err)
+		// } else if pn == types.EmptyJID {
+		// 	log.Println("Nenhum número associado a esse LID foi encontrado ainda.")
+		// } else {
+		// 	fmt.Println("Número de telefone vinculado ao LID:", pn.)
+		// }
 		if client == nil {
 			client = tryConnecting(clientId)
 			if client == nil {
@@ -1623,6 +1649,7 @@ func main() {
 				"message": "Cliente não conectado",
 			})
 		}
+
 		validNumber, err := checkNumberWithRetry(client, numberWithOnlyNumbers, false)
 		if err != nil {
 			fmt.Println("Erro check", err)
