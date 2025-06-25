@@ -57,7 +57,7 @@ import (
 
 var (
 	clientMap    = make(map[string]*whatsmeow.Client)
-	clientsMutex sync.Mutex // Mutex simples
+	clientsMutex sync.RWMutex // Mutex simples
 )
 var mapOficial, _ = loadConfigInicial("spacemid_luis:G4l01313@tcp(pro107.dnspro.com.br:3306)/spacemid_sistem_adm")
 var focusedMessagesKeys = []string{}
@@ -280,6 +280,8 @@ func initManagerDBPool() {
 			log.Fatal(err)
 		}
 		dbPool.SetMaxOpenConns(5) // Limite de conexões
+		dbPool.SetMaxIdleConns(5)
+		dbPool.SetConnMaxLifetime(time.Hour)
 	}
 
 }
@@ -425,8 +427,7 @@ func getText(message *waE2E.Message) string {
 	}
 	return text
 }
-func getMedia(evt *events.Message, clientId string) (string, string) {
-	ctx := context.Background()
+func getMedia(ctx context.Context, evt *events.Message, clientId string) (string, string) {
 	client := getClient(clientId)
 	if client == nil {
 		// Reconecta sob demanda
@@ -497,11 +498,6 @@ func getSender(senderNumber string) string {
 }
 
 var messagesQueue = NewQueue()
-var (
-	sentMessages     = make(map[string]time.Time)
-	sentMessagesLock sync.Mutex
-	pendingSync      = make(chan string, 1000)
-)
 
 func requestLogger(c *fiber.Ctx) error {
 	start := time.Now()
@@ -584,7 +580,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	// Convertendo para o timestamp (seconds desde a época Unix)
 	timestamp := t.Unix()
 	var quotedMessageID string = contextInfo.GetStanzaID()
-	media, fileType := getMedia(fullInfoMessage, clientId)
+	media, fileType := getMedia(ctx, fullInfoMessage, clientId)
 	edited := 0
 	validNumber, err := client.IsOnWhatsApp([]string{senderNumber})
 	if err != nil {
@@ -596,7 +592,6 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	if fromMe {
 		senderNumber = fullInfoMessage.Info.Chat.User
 	}
-	fmt.Println(JID)
 	params := &whatsmeow.GetProfilePictureParams{}
 	profilePic, _ := client.GetProfilePictureInfo(JID, params)
 	if editedInfo != "" {
@@ -697,9 +692,9 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 
 		var uniqueMessageID string = strings.Replace(id_message+"_"+senderNumber+"_"+clientId, " ", "", -1)
 
-		if _, exists := sentMessages[uniqueMessageID]; exists && edited == 0 {
+		if idMessageJaEnviado(uniqueMessageID) && edited == 0 {
 			fmt.Println("❌ -> Mensagem REPETIDA:", id_message, senderName, senderNumber, clientId, text)
-			fmt.Println("!--------------------->MENSAGEM COM ID JÁ ENVIADO<---------------------!", sentMessages[uniqueMessageID])
+			fmt.Println("!--------------------->MENSAGEM COM ID JÁ ENVIADO<---------------------!")
 			return false
 		}
 		var MessageID []types.MessageID = []types.MessageID{id_message}
@@ -708,18 +703,13 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			messagesQueue.AddMessage(clientId, objetoMensagens, senderNumber)
 			log.Printf("------------------ %s Receiving Message Event | By Group : %v ------------------------ \n\n", clientId, groupMessage)
 			fmt.Println("📩 -> Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text, " | By Group:", groupMessage)
-			fmt.Println("Mensagens registradas : ", len(sentMessages)+1)
-			sentMessagesLock.Lock()
-			sentMessages[uniqueMessageID] = time.Now()
-			sentMessagesLock.Unlock()
-			pendingSync <- id_message + "_" + senderNumber + "_" + clientId
+			saveIdEnviado(uniqueMessageID)
 		}
 	}
 	return true
 }
 func safePanic(arguments ...any) {
 	log.Println("Pânico controlado -> ", arguments)
-	saveMessagesReceived()
 	os.Exit(1)
 }
 func autoConnection() {
@@ -975,68 +965,75 @@ func handleSeenMessage(event *events.Receipt, clientId string) {
 		}
 	}
 }
-func saveMessagesReceived() {
-	fmt.Println("Deve salvar mensagens")
-	go func() {
-		batch := make([]string, 0, 100)
-		for msgID := range pendingSync {
-			batch = append(batch, msgID)
-			if len(batch) >= 20 {
-				fmt.Println("💾 -> SALVANDO MENSAGENS NO DB ")
-				placeholders := make([]string, len(batch))
-				values := make([]interface{}, len(batch))
-				for i, msgID := range batch {
-					placeholders[i] = "(?)"
-					values[i] = msgID
-				}
-				var err error
-				db, err := sql.Open("sqlite3", "./messages.db")
-				db.SetMaxOpenConns(10) // Ajuste co
-				if err != nil {
-					fmt.Println("ERRO AO ADD TAREFA DB", err)
-					return
-				}
-				createTableSQL := `CREATE TABLE IF NOT EXISTS sent_messages (
-                    id TEXT
-                );`
-				_, err = db.Exec(createTableSQL)
-				if err != nil {
-					log.Fatal("Erro ao criar TABELA", err)
-				}
-				query := "INSERT INTO sent_messages (id) VALUES " + strings.Join(placeholders, ",")
-				_, _ = db.Exec(query, values...)
-				batch = batch[:0]
-			}
-		}
-	}()
-}
-func loadMessagesReceiveds() {
+
+var messagesDB *sql.DB
+
+func connectMessagesDB() bool {
+	if messagesDB != nil {
+		return true
+	}
 	var err error
-	db, err := sql.Open("sqlite3", "./messages.db")
+	messagesDB, err = sql.Open("sqlite3", "./messages.db")
 	if err != nil {
 		safePanic("ERRO AO ADD TAREFA DB", err)
+		return false
 	}
 	createTableSQL := `CREATE TABLE IF NOT EXISTS sent_messages (
                     id TEXT
                 );`
-	_, err = db.Exec(createTableSQL)
+	_, err = messagesDB.Exec(createTableSQL)
 	if err != nil {
 		log.Fatal("Erro ao criar TABELA", err)
 	}
-	query := "SELECT * FROM sent_messages"
-	result, _ := db.Query(query)
-	defer result.Close()
-	if result != nil {
-		fmt.Println(result)
-		for result.Next() {
-			var id string
-			if err := result.Scan(&id); err != nil {
-				log.Println(err)
-			}
-			sentMessages[id] = time.Now()
-		}
-
+	cleanup := `
+DELETE FROM sent_messages
+WHERE rowid NOT IN (
+  SELECT MIN(rowid)
+  FROM sent_messages
+  GROUP BY id
+);
+`
+	_, err = messagesDB.Exec(cleanup)
+	if err != nil {
+		log.Fatal("Erro ao limpar duplicatas:", err)
 	}
+	createIndex := `CREATE UNIQUE INDEX IF NOT EXISTS idx_sent_messages_id ON sent_messages(id);`
+	_, err = messagesDB.Exec(createIndex)
+	if err != nil {
+		log.Fatal("Erro ao criar INDEX", err)
+	}
+	return true
+}
+func idMessageJaEnviado(id string) bool {
+	if messagesDB == nil {
+		if !connectMessagesDB() {
+			fmt.Println("CONEXÃO COM DB DE MENSAGENS FALHOU")
+			return false
+		}
+	}
+	query := "SELECT 1 FROM sent_messages WHERE id = ? LIMIT 1"
+	var dummy int
+	err := messagesDB.QueryRow(query, id).Scan(&dummy)
+
+	if err == sql.ErrNoRows {
+		return false // não encontrado
+	}
+	if err != nil {
+		log.Println("Erro ao checar mensagem enviada:", err)
+		return false // falha na consulta, melhor não considerar como enviado
+	}
+
+	return true // encontrado
+}
+func saveIdEnviado(id string) error {
+	if messagesDB == nil {
+		if !connectMessagesDB() {
+			return fmt.Errorf("CONEXÃO COM DB DE MENSAGENS FALHOU")
+		}
+	}
+	query := "INSERT OR IGNORE INTO sent_messages (id) VALUES (?)"
+	_, err := messagesDB.Exec(query, id)
+	return err
 }
 
 type sendMessageInfo struct {
@@ -1511,9 +1508,7 @@ func enviarMensagem(msg singleMessageInfo, uuid string) error {
 	}
 	return nil
 }
-func cleanup() {
-	saveMessagesReceived()
-}
+
 func cleanUploads() {
 	RemoveContents("./uploads/")
 }
@@ -1535,37 +1530,19 @@ func RemoveContents(dir string) error {
 	}
 	return nil
 }
-func cleanUpSentMessages() {
-	sentMessagesLock.Lock()
-	defer sentMessagesLock.Unlock()
-	now := time.Now()
-	for id, timestamp := range sentMessages {
-		if now.Sub(timestamp) > 24*time.Hour {
-			delete(sentMessages, id)
-		}
-	}
-}
+
 func main() {
 	cleanUploads()
-	go func() {
-		ticker := time.NewTicker(1 * time.Hour)
-		for range ticker.C {
-			cleanUpSentMessages()
-		}
-	}()
+
 	go autoCleanup()
 	// loadMensagensPendentesFromDB()
-	defer cleanup() // Fecha conexões, salva estado, etc.
 	// Captura sinais de interrupção (Ctrl+C)
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-signalCh
-		cleanup()
 		os.Exit(0)
 	}()
-	loadMessagesReceiveds()
-	saveMessagesReceived()
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Println("Panic detectado:", r)

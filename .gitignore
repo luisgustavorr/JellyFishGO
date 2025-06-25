@@ -10,3 +10,4 @@ arquivos_disparos_programados/*
 heap
 profile
 trace
+./pprof
