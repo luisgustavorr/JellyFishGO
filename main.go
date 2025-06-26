@@ -17,6 +17,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -66,12 +67,6 @@ var _ = godotenv.Load()
 var MODO_DESENVOLVIMENTO = os.Getenv("MODO_DESENVOLVIMENTO")
 var desenvolvimento = MODO_DESENVOLVIMENTO == "1"
 
-type MessagesQueue struct {
-	bufferLock     sync.Mutex
-	messageBuffer  map[string][]interface{}
-	messageTimeout map[string]*time.Timer
-}
-
 var groupPicCache sync.Map // Thread-safe
 var dbPool *sql.DB
 
@@ -90,30 +85,62 @@ func getGroupProfilePicture(client *whatsmeow.Client, groupJID types.JID) *types
 	})
 	return pictureInfo
 }
-func NewQueue() *MessagesQueue {
-	return &MessagesQueue{
-		messageBuffer:  make(map[string][]interface{}),
+
+type SeenMessage struct {
+	Chat      string `json:"chat"`
+	IdMessage string `json:"idMessage"`
+	Lida      bool   `json:"lida"`
+}
+
+type SeenMessagesQueue struct {
+	messageBuffer  map[string][]SeenMessage
+	messageTimeout map[string]*time.Timer
+}
+
+func NewSeenQueue() *SeenMessagesQueue {
+	return &SeenMessagesQueue{
+		messageBuffer:  make(map[string][]SeenMessage),
 		messageTimeout: make(map[string]*time.Timer),
 	}
 }
-func (c *MessagesQueue) AddMessage(clientID string, message map[string]interface{}, number string) {
+
+type MessagesQueue struct {
+	bufferLock     sync.Mutex
+	messageBuffer  map[string][]Envelope
+	messageTimeout map[string]*time.Timer
+}
+
+func NewQueue() *MessagesQueue {
+	return &MessagesQueue{
+		messageBuffer:  make(map[string][]Envelope),
+		messageTimeout: make(map[string]*time.Timer),
+	}
+}
+
+func (c *MessagesQueue) AddMessage(clientID string, message Envelope, number string) {
 	c.bufferLock.Lock()
 	defer c.bufferLock.Unlock()
 	compositeKey := clientID + "_" + number
 	if _, exists := c.messageBuffer[compositeKey]; !exists {
-		c.messageBuffer[compositeKey] = []interface{}{}
+		c.messageBuffer[compositeKey] = []Envelope{}
 	}
 	c.messageBuffer[compositeKey] = append(c.messageBuffer[compositeKey], message)
 	if timer, exists := c.messageTimeout[compositeKey]; exists {
 		timer.Stop()
 	}
 	messageCount := len(c.messageBuffer[compositeKey])
+	if len(c.messageBuffer[compositeKey]) >= 5 {
+		go c.ProcessMessages(clientID, number)
+		fmt.Printf("⏳ -> ENVIANDO %d MENSAGENS ANTES DO TIMER DO CLIENTE %s \n", messageCount, clientID)
+		return
+	}
 	timerBetweenMessage := -0.15*float64(messageCount)*float64(messageCount) + 0.5*float64(messageCount) + 7
 	if timerBetweenMessage < 0 {
 		timerBetweenMessage = 0.001
 	}
-	timerDuration := time.Duration(timerBetweenMessage * float64(time.Second))
 	fmt.Printf("⏳ -> ESPERANDO %.3f SEGUNDOS PARA %d MENSAGENS DO CLIENTE %s \n", timerBetweenMessage, messageCount, clientID)
+
+	timerDuration := time.Duration(timerBetweenMessage * float64(time.Second))
 	c.messageTimeout[compositeKey] = time.AfterFunc(timerDuration, func(currentClientID string) func() {
 		return func() {
 			c.ProcessMessages(currentClientID, number)
@@ -129,7 +156,6 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 	if messages == nil {
 		return
 	}
-	c.messageBuffer[compositeKey] = nil
 	fmt.Printf("📦 -> ENVIANDO LOTES DE %d MENSAGENS DO %s\n", len(messages), clientID)
 	lastIndex := strings.LastIndex(clientID, "_")
 	sufixo := clientID[lastIndex+1:]
@@ -144,10 +170,18 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 		"data":     messages,
 	}
 	sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
+
 	if timer, exists := c.messageTimeout[compositeKey]; exists {
 		timer.Stop()
 		delete(c.messageTimeout, compositeKey)
 	}
+	delete(c.messageBuffer, compositeKey)
+	logMemUsage()
+}
+func logMemUsage() {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	fmt.Printf("🩺 💾 Memória: %.2fMB\n", float64(m.Alloc)/1024.0/1024.0)
 }
 func gerarTarefasProgramadas() {
 	fmt.Println("Pegando tarefas")
@@ -204,7 +238,6 @@ func sendFilesProgramados(clientId string, infoObjects string, documento_padrao 
 			return
 		}
 	}
-
 	if files != "" {
 		files_filePath := files
 		file, _ := os.Open(files_filePath)
@@ -235,7 +268,6 @@ func sendFilesProgramados(clientId string, infoObjects string, documento_padrao 
 		return
 	}
 	defer res.Body.Close()
-
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		fmt.Println("erro Enviando sendFiles2", err)
@@ -386,6 +418,7 @@ func sendToEndPoint(data map[string]any, url string) {
 		fmt.Printf("Erro ao criar marshal: %v", err)
 		return
 	}
+	// fmt.Println("Data sendo envidada :", string(jsonData))
 	if url == "" {
 		fmt.Printf("URL %s vazia", url)
 		return
@@ -526,6 +559,45 @@ func removeString(slice []string, value string) []string {
 	}
 	return filtered
 }
+
+type MessageAttrs struct {
+	QuotedMessage *QuotedMessage `json:"quotedMessage,omitempty"`
+	Edited        int            `json:"edited,omitempty"`
+	Contact       *ContactInfo   `json:"contact,omitempty"`
+	FileType      string         `json:"file_type,omitempty"`
+	Media         string         `json:"media,omitempty"`
+	Audio         string         `json:"audio,omitempty"`
+}
+type QuotedMessage struct {
+	Sender        int    `json:"sender"`
+	SenderName    string `json:"senderName"`
+	MessageQuoted string `json:"messageQuoted"`
+	MessageID     string `json:"messageID"`
+}
+
+type ContactInfo struct {
+	Contato string `json:"contato"`
+	Nome    string `json:"nome"`
+}
+
+type MessagePayload struct {
+	ID        string       `json:"id"`
+	Sender    string       `json:"sender"`
+	Number    string       `json:"number"`
+	Text      string       `json:"text"`
+	Timestamp int64        `json:"timestamp"`
+	Attrs     MessageAttrs `json:"attrs"`
+	Focus     string       `json:"focus,omitempty"`
+	IDGrupo   string       `json:"id_grupo,omitempty"`
+	NomeGrupo string       `json:"nome_grupo,omitempty"`
+	ImgGrupo  string       `json:"imagem_grupo,omitempty"`
+	PerfilImg string       `json:"perfil_image,omitempty"`
+}
+
+type Envelope struct {
+	Mensagem MessagePayload `json:"mensagem"`
+}
+
 func handleMessage(fullInfoMessage *events.Message, clientId string, client *whatsmeow.Client) bool {
 	if fullInfoMessage == nil {
 		log.Println("Mensagem recebida é nil")
@@ -535,6 +607,8 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		log.Println("Cliente Whatsmeow é nil")
 		return false
 	}
+	// infoINJSON, _ := json.Marshal(fullInfoMessage)
+	// fmt.Println("INFOS RECEBIDAS", string(infoINJSON))
 	var channel bool = fullInfoMessage.SourceWebMsg.GetBroadcast()
 	var statusMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "status")
 	var LocationMessage bool = fullInfoMessage.Message.LocationMessage != nil
@@ -569,7 +643,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	}
 	var id_message string = fullInfoMessage.Info.ID
 	var datetime string = fullInfoMessage.Info.Timestamp.String()
-	var editedInfo = message.GetProtocolMessage().GetKey().GetId()
+	var editedInfo = message.GetProtocolMessage().GetKey().GetID()
 	layout := "2006-01-02 15:04:05"
 	// Parse da string para o tipo time.Time
 	trimmedDate := strings.Split(datetime, " -")[0]
@@ -580,6 +654,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	// Convertendo para o timestamp (seconds desde a época Unix)
 	timestamp := t.Unix()
 	var quotedMessageID string = contextInfo.GetStanzaID()
+
 	media, fileType := getMedia(ctx, fullInfoMessage, clientId)
 	edited := 0
 	validNumber, err := client.IsOnWhatsApp([]string{senderNumber})
@@ -598,7 +673,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		edited = 1
 		id_message = editedInfo
 	}
-	var contactObject map[string]interface{} = nil
+	var contactObject ContactInfo
 	if contactMessage != nil {
 		var name string = *contactMessage.DisplayName
 		var vcard string = *contactMessage.Vcard
@@ -614,43 +689,55 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		} else {
 			numero = "sem_whatsapp"
 		}
-		contactObject = map[string]interface{}{
-			"contato": numero,
-			"nome":    name,
+		contactObject = ContactInfo{
+			Contato: numero,
+			Nome:    name,
 		}
 	}
-	messageAttr := map[string]interface{}{
-		"quotedMessage": quotedMessageID,
-		"edited":        edited,
-		"contact":       contactObject,
+
+	messageAttr := MessageAttrs{
+		Edited: edited,
+	}
+	if quotedMessageID != "" {
+		fmt.Println("ADICIONANDO QUOTE")
+		var quotedMessage = &QuotedMessage{
+			Sender:        2,
+			SenderName:    senderName,
+			MessageID:     quotedMessageID,
+			MessageQuoted: *message.ExtendedTextMessage.ContextInfo.QuotedMessage.Conversation,
+		}
+		messageAttr.QuotedMessage = quotedMessage
+	}
+	if contactObject.Nome != "" && contactObject.Contato != "" {
+		messageAttr.Contact = &contactObject
 	}
 	if media != "" {
-		messageAttr["file_type"] = fileType
+		messageAttr.FileType = fileType
 		if strings.Contains(fileType, "audio") {
-			messageAttr["audio"] = media
+			messageAttr.Audio = media
 		} else {
-			messageAttr["media"] = media
+			messageAttr.Media = media
 		}
 	}
-	mensagem := map[string]interface{}{
-		"id":        id_message,
-		"sender":    senderName,
-		"number":    senderNumber,
-		"text":      text,
-		"attrs":     messageAttr,
-		"timestamp": timestamp,
+	mensagem := MessagePayload{
+		ID:        id_message,
+		Sender:    senderName,
+		Number:    senderNumber,
+		Text:      text,
+		Timestamp: timestamp,
+		Attrs:     messageAttr,
 	}
 	if groupMessage {
 		groupJID := fullInfoMessage.Info.Chat
 		groupInfo, _ := client.GetGroupInfo(groupJID)
 		groupImage := getGroupProfilePicture(client, groupJID)
 		if groupImage != nil {
-			mensagem["imagem_grupo"] = groupImage.URL
+			mensagem.ImgGrupo = groupImage.URL
 		}
 		if groupInfo != nil {
-			mensagem["nome_grupo"] = groupInfo.GroupName.Name
+			mensagem.NomeGrupo = groupInfo.GroupName.Name
 		}
-		mensagem["id_grupo"] = strings.Replace(fullInfoMessage.Info.Chat.String(), "@g.us", "", -1)
+		mensagem.IDGrupo = strings.Replace(fullInfoMessage.Info.Chat.String(), "@g.us", "", -1)
 	}
 	var focus = getMessageFocus(focusedMessagesKeys, id_message)
 	if focus != "" {
@@ -659,19 +746,16 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			return false
 		}
 		fmt.Println("MENSAGEM FOCADA", focus)
-		mensagem["focus"] = focus
+		mensagem.Focus = focus
 		focusedMessagesKeys = removeString(focusedMessagesKeys, focus+"_"+id_message)
-		fmt.Println(focusedMessagesKeys)
 	}
 	if profilePic != nil {
-		mensagem["perfil_image"] = profilePic.URL
+		mensagem.PerfilImg = profilePic.URL
 	}
-	objetoMensagens := map[string]interface{}{
-		"mensagem": mensagem,
-	}
+	objetoMensagens := Envelope{Mensagem: mensagem}
 	if fromMe {
 		if media != "" || text != "" {
-			listaMensagens := []map[string]interface{}{}
+			listaMensagens := []Envelope{}
 			fmt.Println("-> Mensagem ENVIADA PELO WHATSAPP:", id_message, senderName, senderNumber, text)
 			listaMensagens = append(listaMensagens, objetoMensagens)
 			data := map[string]any{
@@ -904,7 +988,7 @@ func normalizeFileName(filename string) string {
 }
 
 var (
-	seenMessagesQueue      = NewQueue()
+	seenMessagesQueue      = NewSeenQueue()
 	seenMessagesQueueMutex sync.Mutex
 )
 
@@ -930,11 +1014,11 @@ func sendSeenMessages(clientId string) {
 		delete(seenMessagesQueue.messageTimeout, clientId)
 	}
 }
-func addSeenMessageToQueue(message interface{}, clientId string) bool {
+func addSeenMessageToQueue(message SeenMessage, clientId string) bool {
 	seenMessagesQueueMutex.Lock()
 	defer seenMessagesQueueMutex.Unlock()
 	if _, exists := seenMessagesQueue.messageBuffer[clientId]; !exists {
-		seenMessagesQueue.messageBuffer[clientId] = []interface{}{}
+		seenMessagesQueue.messageBuffer[clientId] = []SeenMessage{}
 	}
 	seenMessagesQueue.messageBuffer[clientId] = append(seenMessagesQueue.messageBuffer[clientId], message)
 	if timer, exists := seenMessagesQueue.messageTimeout[clientId]; exists {
@@ -957,10 +1041,10 @@ func handleSeenMessage(event *events.Receipt, clientId string) {
 
 	if event.Type == "read" && !event.IsFromMe {
 		for i := 0; i < len(event.MessageIDs); i++ {
-			var seenMessage = make(map[string]interface{})
-			seenMessage["idMessage"] = event.MessageIDs[i]
-			seenMessage["chat"] = event.Chat.User
-			seenMessage["lida"] = true
+			var seenMessage = SeenMessage{}
+			seenMessage.IdMessage = event.MessageIDs[i]
+			seenMessage.Chat = event.Chat.User
+			seenMessage.Lida = true
 			addSeenMessageToQueue(seenMessage, clientId)
 		}
 	}
