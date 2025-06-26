@@ -700,11 +700,20 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	}
 	if quotedMessageID != "" {
 		fmt.Println("ADICIONANDO QUOTE")
+		var quoted string
+		if message.ExtendedTextMessage != nil &&
+			message.ExtendedTextMessage.ContextInfo != nil &&
+			message.ExtendedTextMessage.ContextInfo.QuotedMessage != nil &&
+			message.ExtendedTextMessage.ContextInfo.QuotedMessage.Conversation != nil {
+			quoted = *message.ExtendedTextMessage.ContextInfo.QuotedMessage.Conversation
+		} else {
+			quoted = "" // ou outra lógica, como ignorar ou registrar
+		}
 		var quotedMessage = &QuotedMessage{
 			Sender:        2,
 			SenderName:    senderName,
 			MessageID:     quotedMessageID,
-			MessageQuoted: *message.ExtendedTextMessage.ContextInfo.QuotedMessage.Conversation,
+			MessageQuoted: quoted,
 		}
 		messageAttr.QuotedMessage = quotedMessage
 	}
