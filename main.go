@@ -418,7 +418,7 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string) {
 		fmt.Printf("Erro ao criar marshal: %v", err)
 		return
 	}
-	fmt.Println("Envelope sendo envidada :", string(jsonData))
+	// fmt.Println("Envelope sendo envidada :", string(jsonData))
 	if url == "" {
 		fmt.Printf("URL %s vazia", url)
 		return
@@ -447,7 +447,7 @@ func sendToEndPoint(data GenericPayload, url string) {
 		fmt.Printf("Erro ao criar marshal: %v", err)
 		return
 	}
-	fmt.Println("Data sendo envidada :", string(jsonData))
+	// fmt.Println("Data sendo envidada :", string(jsonData))
 	if url == "" {
 		fmt.Printf("URL %s vazia", url)
 		return
