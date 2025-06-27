@@ -413,7 +413,7 @@ func getCSRFToken() string {
 	return randomToken
 }
 func sendToEndPoint(data map[string]any, url string) {
-	jsonData, err := json.Marshal(data)
+	jsonData, err := json.MarshalWithOption(data, json.DisableHTMLEscape())
 	if err != nil {
 		fmt.Printf("Erro ao criar marshal: %v", err)
 		return
