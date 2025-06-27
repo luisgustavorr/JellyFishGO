@@ -163,13 +163,13 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 	if strings.Contains(baseURL, "disparo") {
 		baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
 	}
-	data := map[string]any{
-		"evento":   "MENSAGEM_RECEBIDA",
-		"sender":   2,
-		"clientId": clientID,
-		"data":     messages,
+	data := EnvelopePayload{
+		Evento:   "MENSAGEM_RECEBIDA",
+		Sender:   2,
+		ClientID: clientID,
+		Data:     messages,
 	}
-	sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
+	sendEnvelopeToEndPoint(data, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
 
 	if timer, exists := c.messageTimeout[compositeKey]; exists {
 		timer.Stop()
@@ -412,13 +412,13 @@ func getCSRFToken() string {
 	randomToken := fmt.Sprintf("%x", rand.Int63())
 	return randomToken
 }
-func sendToEndPoint(data map[string]any, url string) {
+func sendEnvelopeToEndPoint(data EnvelopePayload, url string) {
 	jsonData, err := json.MarshalWithOption(data, json.DisableHTMLEscape())
 	if err != nil {
 		fmt.Printf("Erro ao criar marshal: %v", err)
 		return
 	}
-	// fmt.Println("Data sendo envidada :", string(jsonData))
+	fmt.Println("Envelope sendo envidada :", string(jsonData))
 	if url == "" {
 		fmt.Printf("URL %s vazia", url)
 		return
@@ -439,7 +439,36 @@ func sendToEndPoint(data map[string]any, url string) {
 	}
 	defer resp.Body.Close()
 	fmt.Println(url)
-	fmt.Println("🌐 -> Resposta Status: [", resp.Status, "] | evento : ", data["evento"], " | clientId :", data["clientId"])
+	fmt.Println("🌐 -> Resposta Status: [", resp.Status, "] | evento : ", data.Evento, " | clientId :", data.ClientID)
+}
+func sendToEndPoint(data GenericPayload, url string) {
+	jsonData, err := json.MarshalWithOption(data, json.DisableHTMLEscape())
+	if err != nil {
+		fmt.Printf("Erro ao criar marshal: %v", err)
+		return
+	}
+	fmt.Println("Data sendo envidada :", string(jsonData))
+	if url == "" {
+		fmt.Printf("URL %s vazia", url)
+		return
+	}
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		fmt.Printf("Erro ao criar a requisição: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "jelly_fish_con_|7@625^4|7")
+	req.Header.Set("X-CSRFToken", getCSRFToken())
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("Erro ao enviar a requisição: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	fmt.Println(url)
+	fmt.Println("🌐 -> Resposta Status: [", resp.Status, "] | evento : ", data.Evento, " | clientId :", data.ClientID)
 }
 func getText(message *waE2E.Message) string {
 	var text string = message.GetConversation()
@@ -560,6 +589,18 @@ func removeString(slice []string, value string) []string {
 	return filtered
 }
 
+type GenericPayload struct {
+	Evento   string      `json:"evento,omitempty"`
+	Sender   int         `json:"sender,omitempty"`
+	ClientID string      `json:"clientId,omitempty"`
+	Data     interface{} `json:"data,omitempty"`
+}
+type EnvelopePayload struct {
+	Evento   string     `json:"evento,omitempty"`
+	Sender   int        `json:"sender,omitempty"`
+	ClientID string     `json:"clientId,omitempty"`
+	Data     []Envelope `json:"data,omitempty"`
+}
 type MessageAttrs struct {
 	QuotedMessage *QuotedMessage `json:"quotedMessage,omitempty"`
 	Edited        int            `json:"edited,omitempty"`
@@ -767,11 +808,11 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			listaMensagens := []Envelope{}
 			fmt.Println("-> Mensagem ENVIADA PELO WHATSAPP:", id_message, senderName, senderNumber, text)
 			listaMensagens = append(listaMensagens, objetoMensagens)
-			data := map[string]any{
-				"evento":   "MENSAGEM_RECEBIDA",
-				"sender":   1,
-				"clientId": clientId,
-				"data":     listaMensagens,
+			data := EnvelopePayload{
+				Evento:   "MENSAGEM_RECEBIDA",
+				Sender:   1,
+				ClientID: clientId,
+				Data:     listaMensagens,
 			}
 			lastIndex := strings.LastIndex(clientId, "_")
 			sufixo := clientId[lastIndex+1:]
@@ -779,7 +820,8 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			if strings.Contains(baseURL, "disparo") {
 				baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
 			}
-			sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
+
+			sendEnvelopeToEndPoint(data, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
 		}
 	} else {
 
@@ -1004,10 +1046,10 @@ var (
 func sendSeenMessages(clientId string) {
 	seenMessagesQueueMutex.Lock()
 	defer seenMessagesQueueMutex.Unlock()
-	data := map[string]any{
-		"evento":   "MENSAGEM_LIDA",
-		"clientId": clientId,
-		"data":     seenMessagesQueue.messageBuffer[clientId],
+	data := GenericPayload{
+		Evento:   "MENSAGEM_LIDA",
+		ClientID: clientId,
+		Data:     seenMessagesQueue.messageBuffer[clientId],
 	}
 	lastIndex := strings.LastIndex(clientId, "_")
 	sufixo := clientId[lastIndex+1:]
@@ -1582,10 +1624,10 @@ func enviarMensagem(msg singleMessageInfo, uuid string) error {
 		adicionarFocusedMessage(focus + "_" + retornoEnvio.ID)
 	}
 	if idMensagem != "" {
-		data := map[string]any{
-			"evento":   "MENSAGEM_ENVIADA",
-			"clientId": clientId,
-			"data": map[string]string{
+		data := GenericPayload{
+			Evento:   "MENSAGEM_ENVIADA",
+			ClientID: clientId,
+			Data: map[string]string{
 				"newID":  retornoEnvio.ID,
 				"oldID":  idMensagem,
 				"sender": strings.Replace(number, "+", "", -1),
@@ -1932,10 +1974,10 @@ func main() {
 				if strings.Contains(clientId, "chat") {
 					setStatus(client, "conectado", types.JID{})
 				}
-				data := map[string]any{
-					"evento":   "CLIENTE_CONECTADO",
-					"clientId": clientId,
-					"data": map[string]string{
+				data := GenericPayload{
+					Evento:   "CLIENTE_CONECTADO",
+					ClientID: clientId,
+					Data: map[string]string{
 						"numero_conectado": client.Store.ID.User,
 						"status":           "conectado",
 						"data_conexao":     "2025-01-20",
@@ -2000,10 +2042,10 @@ func main() {
 							// Criar o data URL
 							dataURL := fmt.Sprintf("data:image/png;base64,%s", base64Img)
 
-							data := map[string]any{
-								"evento":   evento,
-								"clientId": clientIdCopy,
-								"data":     dataURL,
+							data := GenericPayload{
+								Evento:   evento,
+								ClientID: clientIdCopy,
+								Data:     dataURL,
 							}
 							lastIndex := strings.LastIndex(clientIdCopy, "_")
 							sufixo := clientIdCopy[lastIndex+1:]
@@ -2011,10 +2053,10 @@ func main() {
 							sendToEndPoint(data, baseURL)
 
 						} else {
-							data := map[string]any{
-								"evento":   evento,
-								"clientId": clientIdCopy,
-								"data":     evt.Code,
+							data := GenericPayload{
+								Evento:   evento,
+								ClientID: clientIdCopy,
+								Data:     evt.Code,
 							}
 							lastIndex := strings.LastIndex(clientIdCopy, "_")
 							sufixo := clientIdCopy[lastIndex+1:]
@@ -2048,10 +2090,10 @@ func main() {
 				// Criar o data URL
 				dataURL := fmt.Sprintf("data:image/png;base64,%s", base64Img)
 
-				data := map[string]any{
-					"evento":   evento,
-					"clientId": clientId,
-					"data":     dataURL,
+				data := GenericPayload{
+					Evento:   evento,
+					ClientID: clientId,
+					Data:     dataURL,
 				}
 				lastIndex := strings.LastIndex(clientId, "_")
 				sufixo := clientId[lastIndex+1:]
@@ -2061,10 +2103,10 @@ func main() {
 					"qrCode": dataURL,
 				})
 			} else {
-				data := map[string]any{
-					"evento":   evento,
-					"clientId": clientId,
-					"data":     firstQRCode.Code,
+				data := GenericPayload{
+					Evento:   evento,
+					ClientID: clientId,
+					Data:     firstQRCode.Code,
 				}
 				lastIndex := strings.LastIndex(clientId, "_")
 				sufixo := clientId[lastIndex+1:]
@@ -2159,14 +2201,13 @@ func sendEmailDisconnection(clientId string) {
 }
 func desconctarCliente(clientId string) bool {
 	ctx := context.Background()
-
 	fmt.Println("⛔ -> CLIENTE DESCONECTADO", clientId)
 	sendEmailDisconnection(clientId)
 	client := getClient(clientId)
-	data := map[string]any{
-		"evento":   "CLIENTE_DESCONECTADO",
-		"clientId": clientId,
-		"data":     "CLIENTE_DESCONECTADO",
+	data := GenericPayload{
+		Evento:   "CLIENTE_DESCONECTADO",
+		ClientID: clientId,
+		Data:     "CLIENTE_DESCONECTADO",
 	}
 	delete(clientMap, clientId)
 	lastIndex := strings.LastIndex(clientId, "_")
