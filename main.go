@@ -650,12 +650,33 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	}
 	// infoINJSON, _ := json.Marshal(fullInfoMessage)
 	// fmt.Println("INFOS RECEBIDAS", string(infoINJSON))
-	var channel bool = fullInfoMessage.SourceWebMsg.GetBroadcast()
-	var statusMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "status")
-	var LocationMessage bool = fullInfoMessage.Message.LocationMessage != nil
-	var pollMessage bool = fullInfoMessage.Message.GetPollUpdateMessage() != nil || fullInfoMessage.Message.GetPollCreationMessage() != nil || fullInfoMessage.Message.GetPollCreationMessageV2() != nil || fullInfoMessage.Message.GetPollCreationMessageV3() != nil || fullInfoMessage.Message.GetPollCreationMessageV4() != nil || fullInfoMessage.Message.GetPollCreationMessageV5() != nil
-	if statusMessage || pollMessage || LocationMessage || channel {
-		fmt.Println("Mensagem de grupo ou status, ignorando...", fullInfoMessage.Info.Chat.String())
+	// Broadcast (linha de transmissão)
+	var isBroadcast bool = fullInfoMessage.SourceWebMsg.GetBroadcast()
+	chatID := fullInfoMessage.Info.Chat.String()
+	// Status (mensagem no status)
+	var isStatus bool = strings.Contains(chatID, "status")
+
+	// Enquete (vários tipos)
+	var isPoll bool = fullInfoMessage.Message.GetPollUpdateMessage() != nil ||
+		fullInfoMessage.Message.GetPollCreationMessage() != nil ||
+		fullInfoMessage.Message.GetPollCreationMessageV2() != nil ||
+		fullInfoMessage.Message.GetPollCreationMessageV3() != nil ||
+		fullInfoMessage.Message.GetPollCreationMessageV4() != nil ||
+		fullInfoMessage.Message.GetPollCreationMessageV5() != nil
+
+	// Localização
+	var isLocation bool = fullInfoMessage.Message.LocationMessage != nil
+
+	// Comunidade (geralmente terminam com "@g.us" e possuem 'IsCommunityAnnounceMsg')
+	var isCommunityAnnounce bool = fullInfoMessage.Info.Multicast
+	// Mensagem de protocolo (ex: deletada, chamada, etc.)
+	var isProtocolMsg bool = fullInfoMessage.Message.ProtocolMessage != nil
+
+	// Outro tipo inesperado? Mensagem sem corpo (?)
+	var isEmptyMessage bool = fullInfoMessage.Message == nil
+
+	if isBroadcast || isStatus || isPoll || isLocation || isCommunityAnnounce || isProtocolMsg || isEmptyMessage {
+		fmt.Println("Ignorando mensagem do tipo especial:", chatID)
 		return false
 	}
 	var contactMessage *waE2E.ContactMessage = fullInfoMessage.Message.GetContactMessage()
