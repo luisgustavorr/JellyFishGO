@@ -14,10 +14,12 @@ import (
 	"net/http"
 	"net/smtp"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -716,7 +718,6 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	// Convertendo para o timestamp (seconds desde a época Unix)
 	timestamp := t.Unix()
 	var quotedMessageID string = contextInfo.GetStanzaID()
-
 	media, fileType := getMedia(ctx, fullInfoMessage, clientId)
 	edited := 0
 	validNumber, err := client.IsOnWhatsApp([]string{senderNumber})
@@ -2287,8 +2288,81 @@ var bufferPool = sync.Pool{
 	},
 }
 
+func converterParaOgg(inputPath string) (string, error) {
+	ext := strings.ToLower(filepath.Ext(inputPath))
+	if ext != ".mp3" && ext != ".wav" && ext != ".m4a" && ext != ".aac" {
+		// Não precisa converter
+		return inputPath, nil
+	}
+
+	base := strings.TrimSuffix(filepath.Base(inputPath), ext)
+	dir := filepath.Dir(inputPath)
+	outputPath := filepath.Join(dir, base+".ogg")
+
+	cmd := exec.Command(
+		"ffmpeg",
+		"-loglevel", "quiet", // desativa todos os logs
+		"-y",            // sobrescreve sem perguntar
+		"-i", inputPath, // entrada
+		"-c:a", "libopus", // codec de voz
+		"-b:a", "16k", // taxa de bits baixa (voz)
+		outputPath,
+	)
+
+	if err := cmd.Run(); err != nil {
+		return inputPath, fmt.Errorf("ffmpeg failed: %w", err)
+	}
+	os.Remove(inputPath)
+	return outputPath, nil
+}
+func getAudioDuration(path string) (float64, error) {
+	cmd := exec.Command(
+		"ffprobe",
+		"-v", "quiet",
+		"-print_format", "json",
+		"-show_entries", "format=duration",
+		"-i", path,
+	)
+
+	var out bytes.Buffer
+	cmd.Stdout = &out
+
+	if err := cmd.Run(); err != nil {
+		return 0, fmt.Errorf("erro ao executar ffprobe: %w", err)
+	}
+
+	var result struct {
+		Format struct {
+			Duration string `json:"duration"`
+		} `json:"format"`
+	}
+
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		return 0, fmt.Errorf("erro ao interpretar resposta do ffprobe: %w", err)
+	}
+
+	seconds, err := strconv.ParseFloat(result.Format.Duration, 64)
+	if err != nil {
+		return 0, fmt.Errorf("erro ao converter duração: %w", err)
+	}
+
+	return seconds, nil
+}
+
 func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile string, client *whatsmeow.Client, clientId string, msg singleMessageInfo, UUID string) *waE2E.Message {
 	// Abrindo o arquivo
+	if filepath.Ext(chosedFile) == ".mp3" {
+
+		var err error
+		chosedFile, err = converterParaOgg(chosedFile)
+		if err != nil {
+			log.Fatal("Falha ao converter:", err)
+		}
+
+		fmt.Println("chosedFile", chosedFile)
+
+	}
+
 	file, err := os.Open(chosedFile)
 	if err != nil {
 		fmt.Printf("Erro ao abrir o arquivo: %v", err)
@@ -2329,18 +2403,27 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 	mensagem_.Conversation = nil
 	semExtensao := strings.TrimSuffix(nomeArquivo, filepath.Ext(nomeArquivo))
 	if filetype.IsAudio(buf) || filepath.Ext(nomeArquivo) == ".mp3" {
+
+		fmt.Println("REsultado ogg", chosedFile)
 		mimeType = "audio/mpeg"
 		fmt.Println("Arquivo é um áudio")
 		resp, err := client.Upload(context.Background(), buf, whatsmeow.MediaAudio)
 		if err != nil {
 			fmt.Printf("Erro ao fazer upload da mídia: %v", err)
 		}
+		duration, err := getAudioDuration(chosedFile)
+		if err != nil {
+			log.Println("Erro ao pegar duração:", err)
+			duration = 0
+		}
+		durationInUint := uint32(duration)
 		imageMsg := &waE2E.AudioMessage{
 			Mimetype:      proto.String(mimeType),
 			PTT:           proto.Bool(true),
 			URL:           &resp.URL,
 			DirectPath:    &resp.DirectPath,
 			MediaKey:      resp.MediaKey,
+			Seconds:       &durationInUint,
 			FileEncSHA256: resp.FileEncSHA256,
 			FileSHA256:    resp.FileSHA256,
 			FileLength:    &resp.FileLength,
@@ -2419,6 +2502,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		}
 		mensagem_.DocumentMessage = documentMsg
 	}
+	os.Remove(chosedFile)
 	return mensagem_
 }
 func formatPhoneNumber(phone string) string {
