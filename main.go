@@ -2306,7 +2306,7 @@ func converterParaOgg(inputPath string) (string, error) {
 		"-i", inputPath, // entrada
 		"-c:a", "libopus", // codec de voz
 		"-b:a", "16k", // taxa de bits baixa (voz)
-		"-f ogg", //  força o container certo
+		"-f", "ogg", //  força o container certo
 		outputPath,
 	)
 
