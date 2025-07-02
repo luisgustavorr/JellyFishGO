@@ -2508,7 +2508,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		}
 		mensagem_.DocumentMessage = documentMsg
 	}
-	// os.Remove(chosedFile)
+	os.Remove(chosedFile)
 	return mensagem_
 }
 func formatPhoneNumber(phone string) string {
