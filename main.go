@@ -2403,9 +2403,8 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 	mensagem_.Conversation = nil
 	semExtensao := strings.TrimSuffix(nomeArquivo, filepath.Ext(nomeArquivo))
 	if filetype.IsAudio(buf) || filepath.Ext(nomeArquivo) == ".mp3" {
-
 		fmt.Println("REsultado ogg", chosedFile)
-		mimeType = "audio/mpeg"
+		mimeType = "audio/ogg; codecs=opus"
 		fmt.Println("Arquivo é um áudio")
 		resp, err := client.Upload(context.Background(), buf, whatsmeow.MediaAudio)
 		if err != nil {
