@@ -4,6 +4,7 @@ clients_db
 jellyFish.*
 *.js
 uploads
+temp
 arquivos_disparos_programados/*
 *.db
 .qodo

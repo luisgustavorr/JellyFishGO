@@ -2298,16 +2298,35 @@ func converterParaOgg(inputPath string) (string, error) {
 	base := strings.TrimSuffix(filepath.Base(inputPath), ext)
 	dir := filepath.Dir(inputPath)
 	outputPath := filepath.Join(dir, base+".ogg")
-
+	tempDir := "./temp"
 	cmd := exec.Command(
 		"ffmpeg",
 		"-loglevel", "quiet",
 		"-y",
 		"-i", inputPath,
+		"-af", "asetpts=PTS-STARTPTS",
 		"-c:a", "libopus",
 		"-b:a", "16k",
-		"-ar", "16000",
+		"-vbr", "on",
+		"-compression_level", "10",
+		"-ar", "48000",
 		"-ac", "1",
+		// importante: não usar -f ogg ainda
+		tempDir+"/"+base+".opus", // ⚠️ sem encapsular ainda
+	)
+
+	if err := cmd.Run(); err != nil {
+		fmt.Println("Erro ao converter para ocus", err)
+		return inputPath, fmt.Errorf("ffmpeg failed: %w", err)
+	}
+	cmd = exec.Command(
+		"ffmpeg",
+		"-loglevel", "quiet",
+		"-y",
+		"-i", tempDir+"/"+base+".opus",
+		"-c:a", "copy",
+		"-fflags", "+genpts",
+		"-avoid_negative_ts", "make_zero",
 		"-f", "ogg",
 		outputPath,
 	)
@@ -2316,6 +2335,8 @@ func converterParaOgg(inputPath string) (string, error) {
 		return inputPath, fmt.Errorf("ffmpeg failed: %w", err)
 	}
 	os.Remove(inputPath)
+	os.Remove(tempDir + "/" + base + ".opus")
+
 	return outputPath, nil
 }
 func getAudioDuration(path string) (float64, error) {
