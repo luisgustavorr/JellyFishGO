@@ -2308,7 +2308,7 @@ func converterParaOgg(inputPath string) (string, error) {
 		"-b:a", "16k",
 		"-vbr", "on",
 		"-compression_level", "10",
-		"-ar", "48000",
+		"-ar", "16000",
 		"-ac", "1",
 		"-f", "ogg",
 		"-avoid_negative_ts", "make_zero",
