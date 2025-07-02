@@ -2298,44 +2298,28 @@ func converterParaOgg(inputPath string) (string, error) {
 	base := strings.TrimSuffix(filepath.Base(inputPath), ext)
 	dir := filepath.Dir(inputPath)
 	outputPath := filepath.Join(dir, base+".ogg")
-	tempDir := "./temp"
 	cmd := exec.Command(
 		"ffmpeg",
 		"-loglevel", "quiet",
 		"-y",
 		"-i", inputPath,
-		"-af", "asetpts=PTS-STARTPTS",
+		"-af", "asetpts=PTS-STARTPTS", // 👈 Zera timestamps de áudio
 		"-c:a", "libopus",
 		"-b:a", "16k",
 		"-vbr", "on",
 		"-compression_level", "10",
 		"-ar", "48000",
 		"-ac", "1",
-		// importante: não usar -f ogg ainda
-		tempDir+"/"+base+".opus", // ⚠️ sem encapsular ainda
-	)
-
-	if err := cmd.Run(); err != nil {
-		fmt.Println("Erro ao converter para ocus", err)
-		return inputPath, fmt.Errorf("ffmpeg failed: %w", err)
-	}
-	cmd = exec.Command(
-		"ffmpeg",
-		"-loglevel", "quiet",
-		"-y",
-		"-i", tempDir+"/"+base+".opus",
-		"-c:a", "copy",
-		"-fflags", "+genpts",
-		"-avoid_negative_ts", "make_zero",
 		"-f", "ogg",
+		"-avoid_negative_ts", "make_zero",
 		outputPath,
 	)
 
 	if err := cmd.Run(); err != nil {
 		return inputPath, fmt.Errorf("ffmpeg failed: %w", err)
 	}
+
 	os.Remove(inputPath)
-	os.Remove(tempDir + "/" + base + ".opus")
 
 	return outputPath, nil
 }
@@ -2375,7 +2359,7 @@ func getAudioDuration(path string) (float64, error) {
 
 func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile string, client *whatsmeow.Client, clientId string, msg singleMessageInfo, UUID string) *waE2E.Message {
 	// Abrindo o arquivo
-	if filepath.Ext(chosedFile) == ".mp3" {
+	if filepath.Ext(chosedFile) == ".mp3" || filepath.Ext(chosedFile) == ".ogg" {
 
 		var err error
 		chosedFile, err = converterParaOgg(chosedFile)
