@@ -2301,12 +2301,14 @@ func converterParaOgg(inputPath string) (string, error) {
 
 	cmd := exec.Command(
 		"ffmpeg",
-		"-loglevel", "quiet", // desativa todos os logs
-		"-y",            // sobrescreve sem perguntar
-		"-i", inputPath, // entrada
-		"-c:a", "libopus", // codec de voz
-		"-b:a", "16k", // taxa de bits baixa (voz)
-		"-f", "ogg", //  força o container certo
+		"-loglevel", "quiet",
+		"-y",
+		"-i", inputPath,
+		"-c:a", "libopus",
+		"-b:a", "16k",
+		"-ar", "16000",
+		"-ac", "1",
+		"-f", "ogg",
 		outputPath,
 	)
 
@@ -2363,7 +2365,6 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		fmt.Println("chosedFile", chosedFile)
 
 	}
-
 	file, err := os.Open(chosedFile)
 	if err != nil {
 		fmt.Printf("Erro ao abrir o arquivo: %v", err)
@@ -2416,17 +2417,17 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 			log.Println("Erro ao pegar duração:", err)
 			duration = 0
 		}
-		durationInUint := uint32(duration)
 		imageMsg := &waE2E.AudioMessage{
-			Mimetype:      proto.String(mimeType),
-			PTT:           proto.Bool(true),
-			URL:           &resp.URL,
-			DirectPath:    &resp.DirectPath,
-			MediaKey:      resp.MediaKey,
-			Seconds:       &durationInUint,
-			FileEncSHA256: resp.FileEncSHA256,
-			FileSHA256:    resp.FileSHA256,
-			FileLength:    &resp.FileLength,
+			Mimetype:          proto.String(mimeType),
+			PTT:               proto.Bool(true),
+			URL:               &resp.URL,
+			DirectPath:        &resp.DirectPath,
+			MediaKey:          resp.MediaKey,
+			Seconds:           proto.Uint32(uint32(duration)),
+			MediaKeyTimestamp: proto.Int64(time.Now().Unix()),
+			FileEncSHA256:     resp.FileEncSHA256,
+			FileSHA256:        resp.FileSHA256,
+			FileLength:        proto.Uint64(resp.FileLength),
 		}
 
 		if text != "" {
@@ -2502,7 +2503,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		}
 		mensagem_.DocumentMessage = documentMsg
 	}
-	os.Remove(chosedFile)
+	// os.Remove(chosedFile)
 	return mensagem_
 }
 func formatPhoneNumber(phone string) string {
