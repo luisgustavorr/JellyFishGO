@@ -1581,7 +1581,13 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			processarMensagem(msg, sendInfo.UUID)
 			if currentCount >= int32(len(sendInfo.Result)) {
 				fmt.Println("Finalizado")
-				os.Remove("./uploads/" + currentClientID + documento_padrao.Filename)
+				if documento_padrao != nil {
+					path := "./uploads/" + currentClientID + documento_padrao.Filename
+					if err := os.Remove(path); err != nil {
+						fmt.Printf("Erro ao remover o arquivo %s: %v\n", path, err)
+					}
+				}
+
 			}
 		}(i, sendInfoMain)
 		totalDelay := time.Duration(randomBetween(30, 45)) * time.Second
