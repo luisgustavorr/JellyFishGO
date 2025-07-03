@@ -918,26 +918,15 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool
 			response := responses[0]
 			fmt.Println("Resposta Recebida", responses)
 			if response.IsIn || de_grupo {
-				// ctx := context.Background()
-				// lidForPN, err := client.Store.LIDs.GetLIDForPN(ctx, response.JID)
-				// if err != nil {
-				// 	client.Log.Warnf("Failed to get LID for %s: %v", response.JID, err)
-				// } else if !lidForPN.IsEmpty() {
-				// 	fmt.Println("✅!!!! LID RECUPERADO com sucesso !!!!", lidForPN)
-				// }
-				// fmt.Println("✅!!!! LID RECUPERADO com sucesso !!!!", lidForPN,response.JID)
-
 				return responses, nil
 
 			}
 		}
 		time.Sleep(backoff)
 	}
-
-	//LID : 229724966150315
-	//JID : +55 35 9238-5740
-	if len(number) < 5 {
-		return []types.IsOnWhatsAppResponse{}, fmt.Errorf("error : número pequeno demais, inválido para segunda comparação")
+	fmt.Println(len(number))
+	if len(number) < 5 || len(number) == 13 {
+		return []types.IsOnWhatsAppResponse{}, fmt.Errorf("error : número pequeno/grande demais, inválido para segunda comparação")
 	}
 	numberWith9 := number[:4] + "9" + number[4:]
 	fmt.Println("Tentando com 9 adicional", numberWith9)
@@ -1592,7 +1581,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 		}(i, sendInfoMain)
 		totalDelay := time.Duration(randomBetween(30, 45)) * time.Second
 		fmt.Println("⏳ Tempo esperado para enviar a próxima mensagem:", totalDelay, "segundos...")
-		time.Sleep(totalDelay) //-\\ é o que separa as mensagens de lote
+		time.Sleep(totalDelay) // é o que separa as mensagens de lote
 	}
 	wg.Wait()
 
@@ -1645,7 +1634,7 @@ func enviarMensagem(msg singleMessageInfo, uuid string) error {
 	fmt.Println(JID)
 
 	// fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", JID, clientId, text, number)
-	fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", retornoEnvio.ID, clientId, text, number)
+	fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s, JID:%s] ENVIADA \n", retornoEnvio.ID, clientId, text, number, JID.User)
 	// removeMensagemPendente(uuid, text, number)
 	if err != nil {
 		fmt.Println("Erro ao enviar mensagem", err)
@@ -1775,6 +1764,9 @@ func main() {
 		number := utils.CopyString(c.FormValue("numero"))
 		re := regexp.MustCompile("[0-9]+")
 		numberWithOnlyNumbers := strings.Join(re.FindAllString(number, -1), "")
+		if numberWithOnlyNumbers[:2] != "55" {
+			numberWithOnlyNumbers = "+55" + numberWithOnlyNumbers
+		}
 		client := getClient(clientId)
 		// lidJID := types.NewJID(number, "lid")
 		// ctx := context.Background()
