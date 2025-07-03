@@ -1579,12 +1579,17 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			}
 			msg.messageInfo = message
 			processarMensagem(msg, sendInfo.UUID)
+			if currentCount >= int32(len(sendInfo.Result)) {
+				fmt.Println("Finalizado")
+				os.Remove("./uploads/" + currentClientID + documento_padrao.Filename)
+			}
 		}(i, sendInfoMain)
 		totalDelay := time.Duration(randomBetween(30, 45)) * time.Second
 		fmt.Println("⏳ Tempo esperado para enviar a próxima mensagem:", totalDelay, "segundos...")
 		time.Sleep(totalDelay) //-\\ é o que separa as mensagens de lote
 	}
 	wg.Wait()
+
 }
 func autoCleanup() {
 	ticker := time.NewTicker(1 * time.Hour)
@@ -2508,7 +2513,6 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		}
 		mensagem_.DocumentMessage = documentMsg
 	}
-	os.Remove(chosedFile)
 	return mensagem_
 }
 func formatPhoneNumber(phone string) string {
