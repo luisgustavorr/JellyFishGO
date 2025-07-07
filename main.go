@@ -675,9 +675,9 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	var isProtocolMsg bool = fullInfoMessage.Message.ProtocolMessage != nil
 
 	// Outro tipo inesperado? Mensagem sem corpo (?)
-	var isEmptyMessage bool = fullInfoMessage.Message == nil
+	// var isEmptyMessage bool = fullInfoMessage.Message == nil
 
-	if isBroadcast || isStatus || isPoll || isLocation || isCommunityAnnounce || isProtocolMsg || isEmptyMessage {
+	if isBroadcast || isStatus || isPoll || isLocation || isCommunityAnnounce || isProtocolMsg {
 		fmt.Println("Ignorando mensagem do tipo especial:", chatID)
 		return false
 	}
