@@ -691,11 +691,8 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	ctx := context.Background()
 	sender := fullInfoMessage.Info.Sender
 	var senderNumber string = getSender(sender.User)
-	fmt.Println("LID RECUPERADO", fromMe)
 
 	if !fromMe {
-		lid, err := client.Store.LIDs.GetLIDForPN(ctx, sender)
-		fmt.Println("LID RECUPERADO", lid, err)
 		if sender.Server == "lid" {
 
 			pn, err := client.Store.LIDs.GetPNForLID(ctx, sender)
