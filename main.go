@@ -691,9 +691,13 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	ctx := context.Background()
 	sender := fullInfoMessage.Info.Sender
 	var senderNumber string = getSender(sender.User)
+	fmt.Println("LID RECUPERADO", fromMe)
+
 	if !fromMe {
-		fmt.Println("Procurando o LID Servers:", sender.Server, types.DefaultUserServer)
+		lid, err := client.Store.LIDs.GetLIDForPN(ctx, sender)
+		fmt.Println("LID RECUPERADO", lid, err)
 		if sender.Server == "lid" {
+
 			pn, err := client.Store.LIDs.GetPNForLID(ctx, sender)
 			if err != nil {
 				client.Log.Warnf("Failed to get LID for %s: %v", sender, err)
@@ -1622,6 +1626,7 @@ func adicionarFocusedMessage(key string) {
 	focusedMessagesKeys = append(focusedMessagesKeys, key)
 }
 func enviarMensagem(msg singleMessageInfo, uuid string) error {
+	fmt.Println("Enviando mensagem")
 	clientId := msg.clientId
 	client := msg.client
 	JID := msg.JID
@@ -1630,9 +1635,9 @@ func enviarMensagem(msg singleMessageInfo, uuid string) error {
 	focus := msg.focus
 	idMensagem := msg.idMensagem
 	number := msg.number
-	retornoEnvio, err := client.SendMessage(context, JID, msg.messageInfo)
-	fmt.Println(JID)
+	fmt.Println("JID ENVIADO", JID)
 
+	retornoEnvio, err := client.SendMessage(context, JID, msg.messageInfo)
 	// fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", JID, clientId, text, number)
 	fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s, JID:%s] ENVIADA \n", retornoEnvio.ID, clientId, text, number, JID.User)
 	// removeMensagemPendente(uuid, text, number)
