@@ -670,7 +670,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	var isLocation bool = fullInfoMessage.Message.LocationMessage != nil
 
 	// Comunidade (geralmente terminam com "@g.us" e possuem 'IsCommunityAnnounceMsg')
-	var isCommunityAnnounce bool = fullInfoMessage.Info.Multicast
+	var isCommunityAnnounce bool = fullInfoMessage.Info.Multicast && strings.HasSuffix(chatID, "@g.us")
 	// Mensagem de protocolo (ex: deletada, chamada, etc.)
 	var isProtocolMsg bool = fullInfoMessage.Message.ProtocolMessage != nil
 
@@ -678,7 +678,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	// var isEmptyMessage bool = fullInfoMessage.Message == nil
 
 	if isBroadcast || isStatus || isPoll || isLocation || isCommunityAnnounce || isProtocolMsg {
-		fmt.Println("Ignorando mensagem do tipo especial:", chatID)
+		fmt.Printf("Ignorando mensagem chatID : '%s' do tipo especial: isBroadcast ? %t | isStatus ? %t | isPoll ? %t | isLocation ? %t | isCommunityAnnounce ? %t | isProtocolMsg ? %t | \n", chatID, isBroadcast, isStatus, isPoll, isLocation, isCommunityAnnounce, isProtocolMsg)
 		return false
 	}
 	var contactMessage *waE2E.ContactMessage = fullInfoMessage.Message.GetContactMessage()
@@ -847,9 +847,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			sendEnvelopeToEndPoint(data, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
 		}
 	} else {
-
 		var uniqueMessageID string = strings.Replace(id_message+"_"+senderNumber+"_"+clientId, " ", "", -1)
-
 		if idMessageJaEnviado(uniqueMessageID) && edited == 0 {
 			fmt.Println("❌ -> Mensagem REPETIDA:", id_message, senderName, senderNumber, clientId, text)
 			fmt.Println("!--------------------->MENSAGEM COM ID JÁ ENVIADO<---------------------!")
