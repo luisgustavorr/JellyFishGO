@@ -672,13 +672,22 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	// Comunidade (geralmente terminam com "@g.us" e possuem 'IsCommunityAnnounceMsg')
 	var isCommunityAnnounce bool = fullInfoMessage.Info.Multicast && strings.HasSuffix(chatID, "@g.us")
 	// Mensagem de protocolo (ex: deletada, chamada, etc.)
-	var isProtocolMsg bool = fullInfoMessage.Message.ProtocolMessage != nil
+	var isIgnoredProtocolMsg bool
+
+	if fullInfoMessage.Message.ProtocolMessage != nil {
+		switch fullInfoMessage.Message.ProtocolMessage.GetType() {
+		case waE2E.ProtocolMessage_REVOKE, waE2E.ProtocolMessage_EPHEMERAL_SETTING:
+			isIgnoredProtocolMsg = true
+		default:
+			isIgnoredProtocolMsg = false
+		}
+	}
 
 	// Outro tipo inesperado? Mensagem sem corpo (?)
 	// var isEmptyMessage bool = fullInfoMessage.Message == nil
 
-	if isBroadcast || isStatus || isPoll || isLocation || isCommunityAnnounce || isProtocolMsg {
-		fmt.Printf("Ignorando mensagem chatID : '%s' do tipo especial: isBroadcast ? %t | isStatus ? %t | isPoll ? %t | isLocation ? %t | isCommunityAnnounce ? %t | isProtocolMsg ? %t | \n", chatID, isBroadcast, isStatus, isPoll, isLocation, isCommunityAnnounce, isProtocolMsg)
+	if isBroadcast || isStatus || isPoll || isLocation || isCommunityAnnounce || isIgnoredProtocolMsg {
+		fmt.Printf("Ignorando mensagem chatID : '%s' do tipo especial: isBroadcast ? %t | isStatus ? %t | isPoll ? %t | isLocation ? %t | isCommunityAnnounce ? %t | isProtocolMsg ? %t | \n", chatID, isBroadcast, isStatus, isPoll, isLocation, isCommunityAnnounce, isIgnoredProtocolMsg)
 		return false
 	}
 	var contactMessage *waE2E.ContactMessage = fullInfoMessage.Message.GetContactMessage()
