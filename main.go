@@ -62,7 +62,7 @@ var (
 	clientMap    = make(map[string]*whatsmeow.Client)
 	clientsMutex sync.RWMutex // Mutex simples
 )
-var mapOficial, _ = loadConfigInicial("spacemid_luis:G4l01313@tcp(pro107.dnspro.com.br:3306)/spacemid_sistem_adm")
+var mapOficial, _ = loadConfigInicial(os.Getenv("STRING_CONN"))
 var focusedMessagesKeys = []string{}
 var _ = godotenv.Load()
 
