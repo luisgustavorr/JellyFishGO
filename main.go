@@ -10,6 +10,7 @@ import (
 	"image"
 	"image/jpeg"
 	"io"
+	"jellyFish/modules"
 	"log"
 	"net/http"
 	"net/smtp"
@@ -18,17 +19,16 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
-	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
 	"unicode"
 
+	"mime/multipart"
 	"sync"
 	"time"
-
-	"mime/multipart"
 
 	"math/rand"
 
@@ -70,7 +70,6 @@ var MODO_DESENVOLVIMENTO = os.Getenv("MODO_DESENVOLVIMENTO")
 var desenvolvimento = MODO_DESENVOLVIMENTO == "1"
 
 var groupPicCache sync.Map // Thread-safe
-var dbPool *sql.DB
 
 func getGroupProfilePicture(client *whatsmeow.Client, groupJID types.JID) *types.ProfilePictureInfo {
 	if cached, ok := groupPicCache.Load(groupJID); ok {
@@ -178,200 +177,9 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 		delete(c.messageTimeout, compositeKey)
 	}
 	delete(c.messageBuffer, compositeKey)
-	logMemUsage()
+	modules.LogMemUsage()
 }
-func logMemUsage() {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	fmt.Printf("🩺 💾 Memória: %.2fMB\n", float64(m.Alloc)/1024.0/1024.0)
-}
-func gerarTarefasProgramadas() {
-	fmt.Println("Pegando tarefas")
-	var err error
-	initManagerDBPool()
-	defer dbPool.Close()
-	dbPool.SetMaxOpenConns(10)
-	db := dbPool
-	createTableSQL := `CREATE TABLE IF NOT EXISTS tarefas_agendadas (
-		clientId TEXT,
-		data_desejada TEXT,
-		infoObjects TEXT,
-		documento_padrao TEXT,
-		files TEXT
-	);`
-	_, err = db.Exec(createTableSQL)
-	if err != nil {
-		log.Fatal("Erro ao criar TABELA", err)
-	}
-	rows, err := db.Query("SELECT clientId, data_desejada,infoObjects,documento_padrao,files FROM tarefas_agendadas")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer rows.Close()
-	defer db.Close()
-	for rows.Next() {
-		var clientId string
-		var data_desejada string
-		var infoObjects string
-		var documento_padrao string
-		var files string
-		if err := rows.Scan(&clientId, &data_desejada, &infoObjects, &documento_padrao, &files); err != nil {
-			log.Fatal(err)
-		}
-		iniciarTarefaProgramada(clientId, data_desejada, infoObjects, documento_padrao, files)
-	}
-}
-func sendFilesProgramados(clientId string, infoObjects string, documento_padrao string, files string) {
-	url := "http://localhost:3000/sendFiles"
-	method := "POST"
 
-	payload := &bytes.Buffer{}
-	writer := multipart.NewWriter(payload)
-	_ = writer.WriteField("clientId", clientId)
-	_ = writer.WriteField("infoObjects", infoObjects)
-	if documento_padrao != "" {
-		documento_padrao_filePath := documento_padrao
-		file, _ := os.Open(documento_padrao_filePath)
-		defer file.Close()
-		part4, _ := writer.CreateFormFile("documento_padrao", filepath.Base(documento_padrao_filePath))
-		_, errFile4 := io.Copy(part4, file)
-		if errFile4 != nil {
-			fmt.Println("Erro:", errFile4)
-			return
-		}
-	}
-	if files != "" {
-		files_filePath := files
-		file, _ := os.Open(files_filePath)
-		defer file.Close()
-		part4, _ := writer.CreateFormFile("file", filepath.Base(files_filePath))
-		_, errFile4 := io.Copy(part4, file)
-		if errFile4 != nil {
-			fmt.Println("Erro:", errFile4)
-			return
-		}
-	}
-
-	err := writer.Close()
-	if err != nil {
-		fmt.Println("ERRO1", err)
-		return
-	}
-	client := &http.Client{}
-	req, err := http.NewRequest(method, url, payload)
-	if err != nil {
-		fmt.Println("erro Enviando sendFiles", err)
-		return
-	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	res, err := client.Do(req)
-	if err != nil {
-		fmt.Println("erro Enviando sendFiles1", err)
-		return
-	}
-	defer res.Body.Close()
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		fmt.Println("erro Enviando sendFiles2", err)
-
-		return
-	}
-	fmt.Println("RETORNO", string(body))
-}
-func iniciarTarefaProgramada(clientId string, dataDesejada string, infoObjects string, documento_padrao string, files string) {
-	dbDateStr := dataDesejada
-	layout := "2006-01-02 15:04:05"
-	loc, err := time.LoadLocation("America/Sao_Paulo")
-	if err != nil {
-		log.Fatal("Erro ao carregar fuso horário:", err)
-	}
-	scheduledTime, err := time.ParseInLocation(layout, dbDateStr, loc)
-	if err != nil {
-		log.Println("Erro ao converter data:", err)
-		removerTarefaProgramadaDB(clientId, dataDesejada, documento_padrao, files)
-		return
-	}
-	now := time.Now().In(loc)          // Ambos no mesmo fuso horário
-	duration := scheduledTime.Sub(now) // Forma alternativa mais precisa
-	if duration <= 0 {
-		fmt.Println("----> O horário agendado já passou. <-----", duration, now, scheduledTime)
-		sendFilesProgramados(clientId, infoObjects, documento_padrao, files)
-		removerTarefaProgramadaDB(clientId, dataDesejada, documento_padrao, files)
-		return
-	}
-	fmt.Printf("Agendando disparo do cliente %s para as %s", clientId, dataDesejada)
-	// Agendar a execução da função após a duração calculada
-	time.AfterFunc(duration+1, func() {
-		sendFilesProgramados(clientId, infoObjects, documento_padrao, files)
-		removerTarefaProgramadaDB(clientId, dataDesejada, documento_padrao, files)
-	})
-}
-func initManagerDBPool() {
-	var err error
-	if dbPool == nil {
-		dbPool, err = sql.Open("sqlite3", "./manager.db")
-		if err != nil {
-			log.Fatal(err)
-		}
-		dbPool.SetMaxOpenConns(5) // Limite de conexões
-		dbPool.SetMaxIdleConns(5)
-		dbPool.SetConnMaxLifetime(time.Hour)
-	}
-
-}
-func removerTarefaProgramadaDB(clientId string, dataDesejada string, documento_padrao string, files string) {
-	if documento_padrao != "" {
-		os.Remove(documento_padrao)
-	}
-	if files != "" {
-		os.Remove(files)
-	}
-	var err error
-	initManagerDBPool()
-	defer dbPool.Close()
-	newDB := dbPool
-	createTableSQL := `CREATE TABLE IF NOT EXISTS tarefas_agendadas (
-		clientId TEXT,
-		data_desejada TEXT,
-		infoObjects TEXT,
-		documento_padrao TEXT,
-		files TEXT
-	);`
-	_, err = newDB.Exec(createTableSQL)
-	if err != nil {
-		log.Println("Erro ao criar TABELA", err)
-	}
-	defer newDB.Close()
-	// Usar a consulta parametrizada
-	query := "DELETE FROM tarefas_agendadas WHERE data_desejada = ? AND clientId = ?"
-	_, err = newDB.Exec(query, dataDesejada, clientId)
-	if err != nil {
-		log.Println("Erro ao executar a consulta:", err)
-	}
-}
-func addTarefaProgramadaDB(clientId string, dataDesejada string, infoObjects string, documento_padrao string, files string) {
-	var err error
-	initManagerDBPool()
-	defer dbPool.Close()
-	createTableSQL := `CREATE TABLE IF NOT EXISTS tarefas_agendadas (
-		clientId TEXT,
-		data_desejada TEXT,
-		infoObjects TEXT,
-		documento_padrao TEXT,
-		files TEXT
-	);`
-	_, err = dbPool.Exec(createTableSQL)
-	if err != nil {
-		log.Println("Erro ao criar TABELA", err)
-	}
-	// Usar a consulta parametrizada
-	query := "INSERT INTO `tarefas_agendadas` ( `clientId`, `data_desejada`, `infoObjects`,`documento_padrao`,`files`) VALUES ( ?, ?, ?,?,?);"
-	_, err = dbPool.Exec(query, clientId, dataDesejada, infoObjects, documento_padrao, files)
-	if err != nil {
-		log.Println("Erro ao executar a consulta:", err)
-	}
-	iniciarTarefaProgramada(clientId, dataDesejada, infoObjects, documento_padrao, files)
-}
 func loadConfigInicial(dsn string) (map[string]string, map[string]string) {
 	// Conectar ao banco de dados
 	db, err := sql.Open("mysql", dsn)
@@ -668,8 +476,10 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 
 	// Localização
 	var isLocation bool = fullInfoMessage.Message.LocationMessage != nil
-
 	// Comunidade (geralmente terminam com "@g.us" e possuem 'IsCommunityAnnounceMsg')
+	// 120363167775174375@newsletter
+
+	var isNewsLetter bool = strings.HasSuffix(chatID, "@newsletter") || fullInfoMessage.NewsletterMeta != nil
 	var isCommunityAnnounce bool = fullInfoMessage.Info.Multicast && strings.HasSuffix(chatID, "@g.us")
 	// Mensagem de protocolo (ex: deletada, chamada, etc.)
 	var isIgnoredProtocolMsg bool
@@ -686,11 +496,13 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	// Outro tipo inesperado? Mensagem sem corpo (?)
 	// var isEmptyMessage bool = fullInfoMessage.Message == nil
 
-	if isBroadcast || isStatus || isPoll || isLocation || isCommunityAnnounce || isIgnoredProtocolMsg {
-		fmt.Printf("Ignorando mensagem chatID : '%s' do tipo especial: isBroadcast ? %t | isStatus ? %t | isPoll ? %t | isLocation ? %t | isCommunityAnnounce ? %t | isProtocolMsg ? %t | \n", chatID, isBroadcast, isStatus, isPoll, isLocation, isCommunityAnnounce, isIgnoredProtocolMsg)
+	if isBroadcast || isStatus || isPoll || isLocation || isCommunityAnnounce || isIgnoredProtocolMsg || isNewsLetter {
+		fmt.Printf("Ignorando mensagem chatID : '%s' do tipo especial: isBroadcast ? %t | isStatus ? %t | isPoll ? %t | isLocation ? %t | isCommunityAnnounce ? %t | isProtocolMsg ? %t | isNewsLetter ? %t\n", chatID, isBroadcast, isStatus, isPoll, isLocation, isCommunityAnnounce, isIgnoredProtocolMsg, isNewsLetter)
 		return false
 	}
 	var contactMessage *waE2E.ContactMessage = fullInfoMessage.Message.GetContactMessage()
+	var contactMessageArray *waE2E.ContactsArrayMessage = fullInfoMessage.Message.GetContactsArrayMessage()
+	fmt.Println(contactMessageArray)
 	message := fullInfoMessage.Message
 	var groupMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "@g.us")
 	var contextInfo = message.ExtendedTextMessage.GetContextInfo()
@@ -713,20 +525,11 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 				senderNumber = getSender(pn.User)
 			}
 		}
-		fmt.Println("📩 -> Mensagem RECEBIDA TEMPORARIO LOG:", senderName, senderNumber, clientId, text, fullInfoMessage.Info.Sender, " | By Group:", groupMessage)
+		// fmt.Println("📩 -> Mensagem RECEBIDA TEMPORARIO LOG:", senderName, senderNumber, clientId, text, fullInfoMessage.Info.Sender, " | By Group:", groupMessage)
 	}
 	var id_message string = fullInfoMessage.Info.ID
-	var datetime string = fullInfoMessage.Info.Timestamp.String()
 	var editedInfo = message.GetProtocolMessage().GetKey().GetID()
-	layout := "2006-01-02 15:04:05"
-	// Parse da string para o tipo time.Time
-	trimmedDate := strings.Split(datetime, " -")[0]
-	t, err := time.Parse(layout, trimmedDate)
-	if err != nil {
-		fmt.Println("Erro ao converter data:", err)
-	}
-	// Convertendo para o timestamp (seconds desde a época Unix)
-	timestamp := t.Unix()
+	timestamp := fullInfoMessage.Info.Timestamp.Unix()
 	var quotedMessageID string = contextInfo.GetStanzaID()
 	media, fileType := getMedia(ctx, fullInfoMessage, clientId)
 	edited := 0
@@ -856,19 +659,65 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			sendEnvelopeToEndPoint(data, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
 		}
 	} else {
-		var uniqueMessageID string = strings.Replace(id_message+"_"+senderNumber+"_"+clientId, " ", "", -1)
-		if idMessageJaEnviado(uniqueMessageID) && edited == 0 {
-			fmt.Println("❌ -> Mensagem REPETIDA:", id_message, senderName, senderNumber, clientId, text)
-			fmt.Println("!--------------------->MENSAGEM COM ID JÁ ENVIADO<---------------------!")
-			return false
-		}
-		var MessageID []types.MessageID = []types.MessageID{id_message}
-		client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
-		if media != "" || text != "" || contactMessage != nil {
-			messagesQueue.AddMessage(clientId, objetoMensagens, senderNumber)
-			log.Printf("------------------ %s Receiving Message Event | By Group : %v ------------------------ \n\n", clientId, groupMessage)
-			fmt.Println("📩 -> Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text, " | By Group:", groupMessage)
-			saveIdEnviado(uniqueMessageID)
+
+		if media != "" || text != "" || contactMessage != nil || contactMessageArray != nil {
+			if contactMessageArray != nil {
+				for _, contactMessage := range contactMessageArray.Contacts {
+
+					var MessageID []types.MessageID = []types.MessageID{id_message}
+					client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
+					var name string = *contactMessage.DisplayName
+					var vcard string = *contactMessage.Vcard
+					startIndex := strings.Index(vcard, "waid=")
+					var numero string
+					if startIndex != -1 {
+						startIndex += len("waid=") // Pular "waid="
+						endIndex := startIndex
+						for endIndex < len(vcard) && unicode.IsDigit(rune(vcard[endIndex])) {
+							endIndex++
+						}
+						numero = vcard[startIndex:endIndex]
+					} else {
+						numero = "sem_whatsapp" + name
+					}
+					var uniqueMessageID string = strings.Replace(id_message+"_"+string(numero)+"_"+senderNumber+"_"+clientId, " ", "", -1)
+					if idMessageJaEnviado(uniqueMessageID) && edited == 0 {
+						fmt.Println("❌ -> Mensagem REPETIDA:", string(numero), id_message, senderName, senderNumber, clientId, text)
+						fmt.Println("!--------------------->MENSAGEM COM ID JÁ ENVIADO<---------------------!")
+						return false
+					}
+					if name != "" && numero != "" {
+						fmt.Println("Adicionando ", name, numero)
+						objetoMensagens.Mensagem.Attrs.Contact = &ContactInfo{
+							Contato: numero,
+							Nome:    name,
+						}
+					}
+
+					fmt.Println(objetoMensagens.Mensagem.Attrs.Contact)
+					novoObjetoMensagens := objetoMensagens
+					novoObjetoMensagens.Mensagem.ID = novoObjetoMensagens.Mensagem.ID + "_" + numero
+					fmt.Println(novoObjetoMensagens.Mensagem.Attrs)
+					messagesQueue.AddMessage(clientId, novoObjetoMensagens, senderNumber)
+					log.Printf("------------------ %s Receiving Message Event | By Group : %v ------------------------ \n\n", clientId, groupMessage)
+					fmt.Println("📩 -> Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text, " | By Group:", groupMessage)
+					saveIdEnviado(uniqueMessageID)
+				}
+			} else {
+				var uniqueMessageID string = strings.Replace(id_message+"_"+senderNumber+"_"+clientId, " ", "", -1)
+				if idMessageJaEnviado(uniqueMessageID) && edited == 0 {
+					fmt.Println("❌ -> Mensagem REPETIDA:", id_message, senderName, senderNumber, clientId, text)
+					fmt.Println("!--------------------->MENSAGEM COM ID JÁ ENVIADO<---------------------!")
+					return false
+				}
+				var MessageID []types.MessageID = []types.MessageID{id_message}
+				client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
+				messagesQueue.AddMessage(clientId, objetoMensagens, senderNumber)
+				log.Printf("------------------ %s Receiving Message Event | By Group : %v ------------------------ \n\n", clientId, groupMessage)
+				fmt.Println("📩 -> Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text, " | By Group:", groupMessage)
+				saveIdEnviado(uniqueMessageID)
+			}
+
 		}
 	}
 	return true
@@ -974,6 +823,7 @@ func tryConnecting(clientId string) *whatsmeow.Client {
 			clientMap[clientId] = client
 			clientsMutex.Unlock()
 			fmt.Println("🎉 -> CLIENTE CONECTADO", clientId)
+			UpdateMemoryLimit(len(clientMap))
 			if strings.Contains(clientId, "chat") {
 				setStatus(client, "conectado", types.JID{})
 			}
@@ -1605,6 +1455,10 @@ func autoCleanup() {
 		}
 		clientsMutex.Unlock()
 	}
+	_30minticker := time.NewTicker(1 * time.Hour)
+	for range _30minticker.C {
+		modules.CheckCloseSchedules()
+	}
 }
 func processarMensagem(msg singleMessageInfo, uuid string) {
 	if err := enviarMensagem(msg, uuid); err != nil {
@@ -1697,12 +1551,40 @@ func RemoveContents(dir string) error {
 	return nil
 }
 
+var lastLimit int64 = -1
+
+func UpdateMemoryLimit(activeConnections int) {
+	const base = 10 << 20
+	const perConn = 3 << 20
+	limit := int64(base + (perConn * activeConnections))
+
+	if limit != lastLimit {
+		debug.SetMemoryLimit(limit)
+		lastLimit = limit
+		fmt.Printf("🔧 Mem limit ajustado: %.2f MiB para %d conexões\n",
+			float64(limit)/1024/1024,
+			activeConnections)
+	}
+}
+
 func main() {
+	//TANTO NO TESTE SEM E NO TESTE COM 4MB, NO ÚLTIMO TESTE HOUVE UM FLUXO MAIOR DE MENSAGENS, POR ISSO O CONSUMO ELEVADO
+	//1° OBS (2 TESTES FEITOS) : COM O SOFT CAP O GC ESTÁ LIMPANDO MAIS RÁPIDO A HEAP, FAZENDO O CONSUMO FICAR ESTÁTICO EM ~4.5(caindo as vezes para 4.3) JÁ SEM O SOFT CAP ELE DEIXA ACUMULAR MAIS
+	//DESSA FORMA FICAVA SUBINDO. EX : 4->4.18->5->5.05->5.28
+	//TESTAR COLOCAR UM LIMIT MAIOR PARA EVITAR O GC RODAR VÁRIAS VEZES DESNECESSÁRIAMENTE (20MB)
+	//2° OBS (3 TESTES FEITOS) : COM 20 MB ELE NÃO VAI LIMPAR PQ N CHEGA PERTO DO LIMIT, VOU REDUZIR PARA UNS 10MB
+	//TESTAR COLOCAR UM LIMIT MAIOR PARA EVITAR O GC RODAR VÁRIAS VEZES DESNECESSÁRIAMENTE (20MB)
+	//3° OBS (4 TESTES FEITOS) : FICOU ESTÁVEL EM ~4.48 (max 4.51) bem semelhante ao com 4MB
+	// SEM SOFT CAP : 4MB - 4.18MB - 5MB
+	// SOFT CAP 4MB : 3.57MB - 3.58MB - 4.5MB
+	// SOFT CAP 20MB : 4.02MB - 4.29MB - 4.42MB
+	// SOFT CAP 10MB : 3.57MB - 3.59MB - 4.48MB
+	// debug.SetMemoryLimit(10 << 20) // 4 MiB
+
 	cleanUploads()
 
 	go autoCleanup()
-	// loadMensagensPendentesFromDB()
-	// Captura sinais de interrupção (Ctrl+C)
+
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -1728,7 +1610,6 @@ func main() {
 		BodyLimit:         20 * 1024 * 1024,
 	})
 	var a string
-
 	r.Use(cors.New())
 	r.Use(pprof.New())
 	r.Use(requestLogger)
@@ -1893,7 +1774,7 @@ func main() {
 		dataProgramada := utils.CopyString(c.FormValue("dataProgramada"))
 		if dataProgramada != "" {
 			layout := "2006-01-02 15:04:05"
-			t, err := time.Parse(layout, dataProgramada)
+			t, err := time.Parse(layout, strings.TrimSpace(dataProgramada))
 			if err != nil {
 				fmt.Println("Erro ao converter data:", t, err)
 				return c.Status(500).JSON(fiber.Map{
@@ -1912,7 +1793,7 @@ func main() {
 			savePath := "./uploads/" + clientId + documento_padrao.Filename
 			if dataProgramada != "" {
 				savePath = normalizeFileName("./arquivos_disparos_programados/padrao_" + dataProgramada + clientId + documento_padrao.Filename)
-				documento_padrao_filePath = savePath
+				// documento_padrao_filePath = savePath
 			}
 			if err := c.SaveFile(documento_padrao, savePath); err != nil {
 				fmt.Printf("Erro ao salvar o arquivo: %v", err)
@@ -1939,12 +1820,31 @@ func main() {
 		if dataProgramada != "" {
 			if files != nil {
 				savePath := normalizeFileName("./arquivos_disparos_programados/zip_" + dataProgramada + clientId + files.Filename)
-				files_filePath = savePath
+				// files_filePath = savePath
 				if err := c.SaveFile(files, savePath); err != nil {
 					fmt.Printf("Erro ao salvar o arquivo files para disparo Futuros: %v", err)
 				}
 			}
-			addTarefaProgramadaDB(clientId, dataProgramada, infoObjects, documento_padrao_filePath, files_filePath)
+			fmt.Println(dataProgramada)
+			layout := "2006-01-02 15:04:05"
+
+			t, err := time.Parse(layout, strings.TrimSpace(dataProgramada))
+			if err != nil {
+				fmt.Println("Erro ao converter data:", t, err)
+				return c.Status(500).JSON(fiber.Map{
+					"message": "Data Inválida",
+				})
+			}
+			tUTC := t.In(time.UTC)
+			fmt.Println("DATA COM TIMESTAMP", tUTC)
+			modules.CreateSchedule(uuid.NewString(), t.Add(3*time.Hour), modules.MessageInfos{
+				ClientID:        clientId,
+				InfoObjects:     infoObjects,
+				DocumentoPadrao: documento_padrao_filePath,
+				Files:           files_filePath,
+			})
+			modules.CheckCloseSchedules()
+
 			return c.Status(200).JSON(fiber.Map{
 				"message": "Disparo agendado com sucesso",
 			})
@@ -2008,6 +1908,7 @@ func main() {
 				if strings.Contains(clientId, "chat") {
 					setStatus(client, "conectado", types.JID{})
 				}
+				UpdateMemoryLimit(len(clientMap))
 				data := GenericPayload{
 					Evento:   "CLIENTE_CONECTADO",
 					ClientID: clientId,
@@ -2162,7 +2063,6 @@ func main() {
 		}
 	})
 	r.Hooks().OnListen(func(listenData fiber.ListenData) error {
-		gerarTarefasProgramadas()
 		return nil
 	})
 	fmt.Println("⏳ Iniciando servidor...", PORT)
