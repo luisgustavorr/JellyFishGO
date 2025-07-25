@@ -100,8 +100,8 @@ type SeenMessagesQueue struct {
 
 func NewSeenQueue() *SeenMessagesQueue {
 	return &SeenMessagesQueue{
-		messageBuffer:  make(map[string][]SeenMessage),
-		messageTimeout: make(map[string]*time.Timer),
+		messageBuffer:  make(map[string][]SeenMessage, 3),
+		messageTimeout: make(map[string]*time.Timer, 1),
 	}
 }
 
@@ -113,8 +113,8 @@ type MessagesQueue struct {
 
 func NewQueue() *MessagesQueue {
 	return &MessagesQueue{
-		messageBuffer:  make(map[string][]Envelope),
-		messageTimeout: make(map[string]*time.Timer),
+		messageBuffer:  make(map[string][]Envelope, 5),
+		messageTimeout: make(map[string]*time.Timer, 1),
 	}
 }
 
@@ -299,7 +299,24 @@ func getText(message *waE2E.Message) string {
 	}
 	return text
 }
+
+var bufPool = sync.Pool{
+	New: func() any {
+		// 1MB de buffer inicial, ajusta conforme necessário
+		s := make([]byte, 0, 300<<10) // 300kb
+		return &s
+	},
+}
+
 func getMedia(ctx context.Context, evt *events.Message, clientId string) (string, string) {
+
+	bufPtr := bufPool.Get().(*[]byte)
+	buf := *bufPtr
+
+	defer func() {
+		*bufPtr = buf[:0]
+		bufPool.Put(bufPtr)
+	}()
 	client := getClient(clientId)
 	if client == nil {
 		// Reconecta sob demanda
@@ -310,55 +327,56 @@ func getMedia(ctx context.Context, evt *events.Message, clientId string) (string
 		}
 	}
 	var mimeType string = ""
+	var err error
 	if imgMsg := evt.Message.GetImageMessage(); imgMsg != nil {
 		mimeType = imgMsg.GetMimetype()
 		mediaMessage := imgMsg
 
-		data, err := client.Download(ctx, mediaMessage)
+		buf, err = client.Download(ctx, mediaMessage)
 		if err != nil {
 			fmt.Printf("Erro ao baixar a mídia: %v", err)
 		}
-		base64Data := base64.StdEncoding.EncodeToString(data)
+		base64Data := base64.StdEncoding.EncodeToString(buf)
 		return base64Data, mimeType
 	}
 	if vidMsg := evt.Message.GetVideoMessage(); vidMsg != nil {
 		mimeType = vidMsg.GetMimetype()
 		mediaMessage := vidMsg
-		data, err := client.Download(ctx, mediaMessage)
+		buf, err := client.Download(ctx, mediaMessage)
 		if err != nil {
 			fmt.Printf("Erro ao baixar a mídia: %v", err)
 		}
-		base64Data := base64.StdEncoding.EncodeToString(data)
+		base64Data := base64.StdEncoding.EncodeToString(buf)
 		return base64Data, mimeType
 	}
 	if audioMsg := evt.Message.GetAudioMessage(); audioMsg != nil {
 		mimeType = audioMsg.GetMimetype()
 		mediaMessage := audioMsg
-		data, err := client.Download(ctx, mediaMessage)
+		buf, err := client.Download(ctx, mediaMessage)
 		if err != nil {
 			fmt.Printf("Erro ao baixar a mídia: %v", err)
 		}
-		base64Data := base64.StdEncoding.EncodeToString(data)
+		base64Data := base64.StdEncoding.EncodeToString(buf)
 		return base64Data, mimeType
 	}
 	if stickerMsg := evt.Message.GetStickerMessage(); stickerMsg != nil {
 		mimeType = stickerMsg.GetMimetype()
 		mediaMessage := stickerMsg
-		data, err := client.Download(ctx, mediaMessage)
+		buf, err := client.Download(ctx, mediaMessage)
 		if err != nil {
 			fmt.Printf("Erro ao baixar a mídia: %v", err)
 		}
-		base64Data := base64.StdEncoding.EncodeToString(data)
+		base64Data := base64.StdEncoding.EncodeToString(buf)
 		return base64Data, mimeType
 	}
 	if docMsg := evt.Message.GetDocumentMessage(); docMsg != nil {
 		mimeType = docMsg.GetMimetype()
 		mediaMessage := docMsg
-		data, err := client.Download(ctx, mediaMessage)
+		buf, err := client.Download(ctx, mediaMessage)
 		if err != nil {
 			fmt.Printf("Erro ao baixar a mídia: %v", err)
 		}
-		base64Data := base64.StdEncoding.EncodeToString(data)
+		base64Data := base64.StdEncoding.EncodeToString(buf)
 		return base64Data, mimeType
 	} else {
 		return "", ""
@@ -401,29 +419,29 @@ func removeString(slice []string, value string) []string {
 
 type GenericPayload struct {
 	Evento   string      `json:"evento,omitempty"`
-	Sender   int         `json:"sender,omitempty"`
 	ClientID string      `json:"clientId,omitempty"`
 	Data     interface{} `json:"data,omitempty"`
+	Sender   int         `json:"sender,omitempty"`
 }
 type EnvelopePayload struct {
-	Evento   string     `json:"evento,omitempty"`
-	Sender   int        `json:"sender,omitempty"`
-	ClientID string     `json:"clientId,omitempty"`
 	Data     []Envelope `json:"data,omitempty"`
+	Evento   string     `json:"evento,omitempty"`
+	ClientID string     `json:"clientId,omitempty"`
+	Sender   int        `json:"sender,omitempty"`
 }
 type MessageAttrs struct {
-	QuotedMessage *QuotedMessage `json:"quotedMessage,omitempty"`
-	Edited        int            `json:"edited,omitempty"`
-	Contact       *ContactInfo   `json:"contact,omitempty"`
 	FileType      string         `json:"file_type,omitempty"`
 	Media         string         `json:"media,omitempty"`
 	Audio         string         `json:"audio,omitempty"`
+	Edited        int            `json:"edited,omitempty"`
+	QuotedMessage *QuotedMessage `json:"quotedMessage,omitempty"`
+	Contact       *ContactInfo   `json:"contact,omitempty"`
 }
 type QuotedMessage struct {
-	Sender        int    `json:"sender"`
 	SenderName    string `json:"senderName"`
 	MessageQuoted string `json:"messageQuoted"`
 	MessageID     string `json:"messageID"`
+	Sender        int    `json:"sender"`
 }
 
 type ContactInfo struct {
@@ -432,17 +450,17 @@ type ContactInfo struct {
 }
 
 type MessagePayload struct {
+	Attrs     MessageAttrs `json:"attrs"`
 	ID        string       `json:"id"`
 	Sender    string       `json:"sender"`
 	Number    string       `json:"number"`
 	Text      string       `json:"text"`
-	Timestamp int64        `json:"timestamp"`
-	Attrs     MessageAttrs `json:"attrs"`
 	Focus     string       `json:"focus,omitempty"`
 	IDGrupo   string       `json:"id_grupo,omitempty"`
 	NomeGrupo string       `json:"nome_grupo,omitempty"`
 	ImgGrupo  string       `json:"imagem_grupo,omitempty"`
 	PerfilImg string       `json:"perfil_image,omitempty"`
+	Timestamp int64        `json:"timestamp"`
 }
 
 type Envelope struct {
@@ -529,7 +547,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	}
 	var id_message string = fullInfoMessage.Info.ID
 	var editedInfo = message.GetProtocolMessage().GetKey().GetID()
-	timestamp := fullInfoMessage.Info.Timestamp.Unix()
+	timestamp := fullInfoMessage.Info.Timestamp.Add(-3 * time.Hour).Unix()
 	var quotedMessageID string = contextInfo.GetStanzaID()
 	media, fileType := getMedia(ctx, fullInfoMessage, clientId)
 	edited := 0
