@@ -5,6 +5,7 @@ import (
 	"runtime"
 )
 
+// Loga o uso de memória
 func LogMemUsage() {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
@@ -14,6 +15,7 @@ func LogMemUsage() {
 		m.NumGC)
 }
 
+// Mostrar uso de memória
 func PrintMemStats() {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)

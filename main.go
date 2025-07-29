@@ -70,7 +70,7 @@ var MODO_DESENVOLVIMENTO = os.Getenv("MODO_DESENVOLVIMENTO")
 var desenvolvimento = MODO_DESENVOLVIMENTO == "1"
 
 var groupPicCache sync.Map // Thread-safe
-
+// Pega foto de perfil do grupo
 func getGroupProfilePicture(client *whatsmeow.Client, groupJID types.JID) *types.ProfilePictureInfo {
 	if cached, ok := groupPicCache.Load(groupJID); ok {
 		return cached.(*types.ProfilePictureInfo)
@@ -98,6 +98,7 @@ type SeenMessagesQueue struct {
 	messageTimeout map[string]*time.Timer
 }
 
+// Cria nova fila de mensagens vistas
 func NewSeenQueue() *SeenMessagesQueue {
 	return &SeenMessagesQueue{
 		messageBuffer:  make(map[string][]SeenMessage, 3),
@@ -111,6 +112,7 @@ type MessagesQueue struct {
 	messageTimeout map[string]*time.Timer
 }
 
+// Cria nova fila de mensagens recebidas
 func NewQueue() *MessagesQueue {
 	return &MessagesQueue{
 		messageBuffer:  make(map[string][]Envelope, 5),
@@ -118,6 +120,7 @@ func NewQueue() *MessagesQueue {
 	}
 }
 
+// Adicionar mensagem para fila de envio
 func (c *MessagesQueue) AddMessage(clientID string, message Envelope, number string) {
 	c.bufferLock.Lock()
 	defer c.bufferLock.Unlock()
@@ -149,6 +152,7 @@ func (c *MessagesQueue) AddMessage(clientID string, message Envelope, number str
 	}(clientID)) // <--- clientID é capturado como valor aqui!
 }
 
+// Processar mensagens recebida
 func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 	c.bufferLock.Lock()
 	defer c.bufferLock.Unlock()
@@ -180,6 +184,7 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 	modules.LogMemUsage()
 }
 
+// Carregar configuração inicial
 func loadConfigInicial(dsn string) (map[string]string, map[string]string) {
 	// Conectar ao banco de dados
 	db, err := sql.Open("mysql", dsn)
@@ -216,12 +221,16 @@ func loadConfigInicial(dsn string) (map[string]string, map[string]string) {
 	}
 	return mapProducao, mapDesenvolvimento
 }
+
+// Pegar Token CSRFT
 func getCSRFToken() string {
 	// Gera um token CSRF aleatório
 	rand.Seed(time.Now().UnixNano())
 	randomToken := fmt.Sprintf("%x", rand.Int63())
 	return randomToken
 }
+
+// Enviar envelope de mensagens para o end point
 func sendEnvelopeToEndPoint(data EnvelopePayload, url string) {
 	jsonData, err := json.MarshalWithOption(data, json.DisableHTMLEscape())
 	if err != nil {
@@ -251,6 +260,8 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string) {
 	fmt.Println(url)
 	fmt.Println("🌐 -> Resposta Status: [", resp.Status, "] | evento : ", data.Evento, " | clientId :", data.ClientID)
 }
+
+// Enviar payload genérica
 func sendToEndPoint(data GenericPayload, url string) {
 	jsonData, err := json.MarshalWithOption(data, json.DisableHTMLEscape())
 	if err != nil {
@@ -280,6 +291,8 @@ func sendToEndPoint(data GenericPayload, url string) {
 	fmt.Println(url)
 	fmt.Println("🌐 -> Resposta Status: [", resp.Status, "] | evento : ", data.Evento, " | clientId :", data.ClientID)
 }
+
+// Recupera texto da mensagem recebida
 func getText(message *waE2E.Message) string {
 	var text string = message.GetConversation()
 	if text == "" {
@@ -308,6 +321,7 @@ var bufPool = sync.Pool{
 	},
 }
 
+// Recupera arquivos recebidos pela mensagem
 func getMedia(ctx context.Context, evt *events.Message, clientId string) (string, string) {
 
 	bufPtr := bufPool.Get().(*[]byte)
@@ -382,6 +396,8 @@ func getMedia(ctx context.Context, evt *events.Message, clientId string) (string
 		return "", ""
 	}
 }
+
+// Recupera quem enviou a mensagem
 func getSender(senderNumber string) string {
 	parts := strings.SplitN(senderNumber, "@", 2) // Mais eficiente que Split
 	return parts[0]
@@ -389,6 +405,7 @@ func getSender(senderNumber string) string {
 
 var messagesQueue = NewQueue()
 
+// Loga as informações de requisições
 func requestLogger(c *fiber.Ctx) error {
 	start := time.Now()
 	method := c.Method()
@@ -399,6 +416,8 @@ func requestLogger(c *fiber.Ctx) error {
 	log.Printf(" [%s] %s | Tempo: %v | ClientId: %s\n", method, path, duration, clientId)
 	return err
 }
+
+// Recupera focus da mensagem
 func getMessageFocus(arr []string, id_message string) string {
 	for _, v := range arr {
 		if strings.Contains(v, "_"+id_message) {
@@ -407,6 +426,8 @@ func getMessageFocus(arr []string, id_message string) string {
 	}
 	return ""
 }
+
+// Remove string
 func removeString(slice []string, value string) []string {
 	filtered := []string{}
 	for _, v := range slice {
@@ -467,6 +488,7 @@ type Envelope struct {
 	Mensagem MessagePayload `json:"mensagem"`
 }
 
+// Lida com mensagens recebidas
 func handleMessage(fullInfoMessage *events.Message, clientId string, client *whatsmeow.Client) bool {
 	if fullInfoMessage == nil {
 		log.Println("Mensagem recebida é nil")
@@ -740,10 +762,14 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	}
 	return true
 }
+
+// Safe panic
 func safePanic(arguments ...any) {
 	log.Println("Pânico controlado -> ", arguments)
 	os.Exit(1)
 }
+
+// Conectar automaticamente os clientes pelo db liteSQL
 func autoConnection() {
 	dir := "./clients_db"
 	files, err := os.ReadDir(dir)
@@ -777,12 +803,16 @@ func autoConnection() {
 		}
 	}
 }
+
+// Verifica com error Handling se o número está no WhatsApp
 func isOnWhatsAppSafe(client *whatsmeow.Client, numbers []string) ([]types.IsOnWhatsAppResponse, error) {
 	if client == nil || !client.IsConnected() || !client.IsLoggedIn() {
 		return nil, fmt.Errorf("cliente não conectado")
 	}
 	return client.IsOnWhatsApp(numbers)
 }
+
+// Verifica se o número está no WhatsApp com tentativas
 func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool) (resp []types.IsOnWhatsAppResponse, err error) {
 	maxRetries := 3
 	backoff := 1 * time.Second
@@ -817,6 +847,8 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool
 	}
 	return []types.IsOnWhatsAppResponse{}, fmt.Errorf("falha após %d tentativas: %v", maxRetries, err)
 }
+
+// Tenta reconectar o WhatsApp do cliente
 func tryConnecting(clientId string) *whatsmeow.Client {
 	context := context.Background()
 
@@ -875,6 +907,8 @@ func tryConnecting(clientId string) *whatsmeow.Client {
 
 	}
 }
+
+// remove o DB do cliente
 func removeClientDB(clientId string, container *sqlstore.Container) {
 	if container != nil {
 		container.Close()
@@ -884,6 +918,8 @@ func removeClientDB(clientId string, container *sqlstore.Container) {
 		fmt.Println("---- Erro excluindo arquivo de sessão :", err)
 	}
 }
+
+// Recupera client pelo clientId
 func getClient(clientId string) *whatsmeow.Client {
 	clientsMutex.Lock()
 	defer clientsMutex.Unlock()
@@ -1026,6 +1062,7 @@ WHERE rowid NOT IN (
 	}
 	return true
 }
+
 func idMessageJaEnviado(id string) bool {
 	if messagesDB == nil {
 		if !connectMessagesDB() {
@@ -1036,7 +1073,6 @@ func idMessageJaEnviado(id string) bool {
 	query := "SELECT 1 FROM sent_messages WHERE id = ? LIMIT 1"
 	var dummy int
 	err := messagesDB.QueryRow(query, id).Scan(&dummy)
-
 	if err == sql.ErrNoRows {
 		return false // não encontrado
 	}
@@ -1059,16 +1095,16 @@ func saveIdEnviado(id string) error {
 }
 
 type sendMessageInfo struct {
-	ClientIdLocal    string                   `json:"clientIdLocal"`
 	Result           []map[string]interface{} `json:"result"`
-	documento_padrao *multipart.FileHeader    `json:"-"`
-	files            *multipart.FileHeader    `json:"-"`
+	ClientIdLocal    string                   `json:"clientIdLocal"`
 	SendContact      string                   `json:"sendContact"`
 	NoTimeout        string                   `json:"noTimeout"`
 	DataProgramada   string                   `json:"dataProgramada"`
 	InfoObjects      string                   `json:"infoObjects"`
-	Counter          int32                    `json:"counter"`
 	UUID             string                   `json:"uuid"`
+	documento_padrao *multipart.FileHeader    `json:"-"`
+	files            *multipart.FileHeader    `json:"-"`
+	Counter          int32                    `json:"counter"`
 }
 
 var dbMensagensPendentes *sql.DB
@@ -1194,21 +1230,20 @@ func loadMensagensPendentesFromDB() {
 }
 
 type singleMessageInfo struct {
-	client      *whatsmeow.Client
+	JID         types.JID
 	clientId    string
-	context     context.Context
 	text        string
 	idMensagem  string
 	focus       string
 	number      string
-	JID         types.JID
-	messageInfo *waE2E.Message
-	Attempts    int32
 	LastError   error
+	context     context.Context
+	messageInfo *waE2E.Message
+	client      *whatsmeow.Client
+	Attempts    int32
 }
 
 func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
-	fmt.Println(sendInfoMain.UUID)
 	workers := make(chan struct{}, 20)
 	limiter := rate.NewLimiter(rate.Every(2*time.Second), 1)
 	var wg sync.WaitGroup
@@ -1293,9 +1328,6 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			client = msg.client
 			text = msg.text
 			number = msg.number
-			fmt.Println("Cliente recuperado :", currentClientID)
-			// fmt.Println("Doc padrao recuperado :", documento_padrao)
-			// fmt.Println("Files recuperado :", sendInfo.files)
 			var idImage string
 			switch v := item["id_image"].(type) {
 			case string:
@@ -1457,6 +1489,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 		}(i, sendInfoMain)
 		totalDelay := time.Duration(randomBetween(30, 45)) * time.Second
 		fmt.Println("⏳ Tempo esperado para enviar a próxima mensagem:", totalDelay, "segundos...")
+		modules.LogMemUsage()
 		time.Sleep(totalDelay) // é o que separa as mensagens de lote
 	}
 	wg.Wait()
@@ -1547,7 +1580,7 @@ func enviarMensagem(msg singleMessageInfo, uuid string) error {
 	return nil
 }
 
-func cleanUploads() {
+func cleanUploads() { // limpar arquivos do uploads
 	RemoveContents("./uploads/")
 }
 func RemoveContents(dir string) error {
@@ -1867,14 +1900,14 @@ func main() {
 				"message": "Disparo agendado com sucesso",
 			})
 		}
-		go processarGrupoMensagens(sendMessageInfo{clientId,
-			result,
-			documento_padrao,
-			files,
-			sendContact,
-			noTimeout,
-			dataProgramada,
-			infoObjects, 0, clientId + uuid.New().String()})
+		go processarGrupoMensagens(sendMessageInfo{ClientIdLocal: clientId,
+			Result:           result,
+			documento_padrao: documento_padrao,
+			files:            files,
+			SendContact:      sendContact,
+			NoTimeout:        noTimeout,
+			DataProgramada:   dataProgramada,
+			InfoObjects:      infoObjects, Counter: 0, UUID: clientId + uuid.New().String()})
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Arquivo recebido e enviado no WhatsApp.",
 		})
@@ -2213,8 +2246,8 @@ func convertWebPToJPEG(inputPath, outputPath string) error {
 
 var bufferPool = sync.Pool{
 	New: func() interface{} {
-		s := make([]byte, 0, 15<<20) // 15mb
-		return &s                    // Retorna PONTEIRO para slice
+		s := make([]byte, 0, 2<<20) // 2mb
+		return &s                   // Retorna PONTEIRO para slice
 	},
 }
 
