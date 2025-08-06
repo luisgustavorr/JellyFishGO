@@ -77,7 +77,7 @@ func getGroupProfilePicture(client *whatsmeow.Client, groupJID types.JID) *types
 	}
 	pictureInfo, err := client.GetProfilePictureInfo(groupJID, nil)
 	if err != nil {
-		log.Printf("Erro ao obter foto do grupo: %v", err)
+		fmt.Printf("Erro ao obter foto do grupo: %v", err)
 		return nil
 	}
 	groupPicCache.Store(groupJID, pictureInfo)
@@ -416,7 +416,7 @@ func requestLogger(c *fiber.Ctx) error {
 	clientId := utils.CopyString(c.FormValue("clientId"))
 	err := c.Next()
 	duration := time.Since(start)
-	log.Printf(" [%s] %s | Tempo: %v | ClientId: %s\n", method, path, duration, clientId)
+	fmt.Printf(" [%s] %s | Tempo: %v | ClientId: %s\n", method, path, duration, clientId)
 	return err
 }
 
@@ -745,7 +745,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 					novoObjetoMensagens.Mensagem.ID = novoObjetoMensagens.Mensagem.ID + "_" + numero
 					fmt.Println(novoObjetoMensagens.Mensagem.Attrs)
 					messagesQueue.AddMessage(clientId, novoObjetoMensagens, senderNumber)
-					log.Printf("------------------ %s Receiving Message Event | By Group : %v ------------------------ \n\n", clientId, groupMessage)
+					fmt.Printf("------------------ %s Receiving Message Event | By Group : %v ------------------------ \n\n", clientId, groupMessage)
 					fmt.Println("📩 -> Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text, " | By Group:", groupMessage)
 					saveIdEnviado(uniqueMessageID)
 				}
@@ -759,7 +759,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 				var MessageID []types.MessageID = []types.MessageID{id_message}
 				client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
 				messagesQueue.AddMessage(clientId, objetoMensagens, senderNumber)
-				log.Printf("------------------ %s Receiving Message Event | By Group : %v ------------------------ \n\n", clientId, groupMessage)
+				fmt.Printf("------------------ %s Receiving Message Event | By Group : %v ------------------------ \n\n", clientId, groupMessage)
 				fmt.Println("📩 -> Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text, " | By Group:", groupMessage)
 				saveIdEnviado(uniqueMessageID)
 			}
@@ -780,7 +780,7 @@ func autoConnection() {
 	dir := "./clients_db"
 	files, err := os.ReadDir(dir)
 	if err != nil {
-		log.Printf("Erro ao ler clientes: %v", err)
+		fmt.Printf("Erro ao ler clientes: %v", err)
 		return
 	}
 	// Fase 1: Coleta de IDs sem lock
@@ -890,7 +890,7 @@ func tryConnecting(clientId string) *whatsmeow.Client {
 				handleSeenMessage(v, clientId)
 			}
 		case *events.Disconnected:
-			log.Printf("🔄 -> RECONECTANDO CLIENTE %s", clientId)
+			fmt.Printf("🔄 -> RECONECTANDO CLIENTE %s", clientId)
 		case *events.LoggedOut:
 			desconctarCliente(clientId)
 			fmt.Println("Cliente " + clientId + " deslogou do WhatsApp!")
@@ -1158,7 +1158,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			}()
 			currentCount := atomic.AddInt32(&counter, 1)
 			limiter.Wait(context.Background())
-			log.Printf("------------------ %s Inside Go Func Inside FOR (%v,%v)------------------------ \n\n", currentClientID, currentCount, len(sendInfo.Result))
+			fmt.Printf("------------------ %s Inside Go Func Inside FOR (%v,%v)------------------------ \n\n", currentClientID, currentCount, len(sendInfo.Result))
 			focus, _ := item["focus"].(string)
 			text, ok := item["text"].(string)
 			if !ok {
@@ -1695,7 +1695,7 @@ func main() {
 	})
 	r.Post("/sendFiles", func(c *fiber.Ctx) error {
 		clientId := utils.CopyString(c.FormValue("clientId"))
-		log.Printf("------------------ %s Send Files Request ------------------------ \n\n", clientId)
+		fmt.Printf("------------------ %s Send Files Request ------------------------ \n\n", clientId)
 		client := getClient(clientId)
 		if client == nil {
 			client = tryConnecting(clientId)
@@ -1883,7 +1883,7 @@ func main() {
 				}
 				sendToEndPoint(data, baseURL)
 			case *events.Disconnected:
-				log.Printf("🔄 -> RECONECTANDO CLIENTE %s", clientId)
+				fmt.Printf("🔄 -> RECONECTANDO CLIENTE %s", clientId)
 			case *events.Receipt:
 				if strings.Contains(clientId, "chat") {
 					handleSeenMessage(v, clientId)
@@ -2057,7 +2057,7 @@ func getOrSetEmails(query string, args []any) *sql.Rows {
 func sendToEmail(target string, text string) {
 	fmt.Println("Enviando email de desconexão para", target)
 	from := "oisharkbusiness@gmail.com"
-	pass := "ucjj iway qetc ftvv "
+	pass := os.Getenv("EMAIL_PASS")
 	to := target
 
 	msg := "From: " + from + "\n" +
@@ -2070,11 +2070,11 @@ func sendToEmail(target string, text string) {
 		from, []string{to}, []byte(msg))
 
 	if err != nil {
-		log.Printf("smtp error: %s", err)
+		fmt.Printf("smtp error: %s", err)
 		return
 	}
 
-	log.Print("sent, visit http://foobarbazz.mailinator.com")
+	fmt.Println("sent, visit http://foobarbazz.mailinator.com")
 }
 func sendEmailDisconnection(clientId string) {
 	rows := getOrSetEmails("SELECT * FROM emails_conexoes WHERE clientId = ?", []any{clientId})
