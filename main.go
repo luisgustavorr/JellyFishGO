@@ -493,9 +493,6 @@ type Envelope struct {
 
 // Lida com mensagens recebidas
 func handleMessage(fullInfoMessage *events.Message, clientId string, client *whatsmeow.Client) bool {
-	if strings.Contains(getSender(fullInfoMessage.Info.Sender.User), "3402") {
-		fmt.Println("->Mensagem De Teste EU : ", fullInfoMessage)
-	}
 	if fullInfoMessage == nil {
 		log.Println("Mensagem recebida é nil")
 		return false
