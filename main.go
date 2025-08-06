@@ -1762,13 +1762,13 @@ func main() {
 		for i := range result {
 			result[i]["clientId"] = clientId
 		}
-		var resultStructed []modules.MessageIndividual
-		// Deserializando o JSON para o map
-		err = json.Unmarshal([]byte(infoObjects), &resultStructed)
-		if err != nil {
-			fmt.Printf("Erro ao converter JSON structed: %v", err)
-		}
-		fmt.Println(resultStructed)
+		// var resultStructed []modules.MessageIndividual
+		// // Deserializando o JSON para o map
+		// err = json.Unmarshal([]byte(infoObjects), &resultStructed)
+		// if err != nil {
+		// 	fmt.Printf("Erro ao converter JSON structed: %v", err)
+		// }
+		// fmt.Println(resultStructed)
 		if dataProgramada != "" {
 			if files != nil {
 				savePath := normalizeFileName("./arquivos_disparos_programados/zip_" + dataProgramada + clientId + files.Filename)
