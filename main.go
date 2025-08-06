@@ -308,6 +308,9 @@ func getText(message *waE2E.Message) string {
 		text = message.DocumentMessage.GetCaption()
 	}
 	if text == "" {
+		text = message.ReactionMessage.GetText()
+	}
+	if text == "" {
 		text = message.GetProtocolMessage().GetEditedMessage().GetConversation()
 	}
 	return text
@@ -490,10 +493,14 @@ type Envelope struct {
 
 // Lida com mensagens recebidas
 func handleMessage(fullInfoMessage *events.Message, clientId string, client *whatsmeow.Client) bool {
+	if strings.Contains(getSender(fullInfoMessage.Info.Sender.User), "3402") {
+		fmt.Println("->Mensagem De Teste EU : ", fullInfoMessage)
+	}
 	if fullInfoMessage == nil {
 		log.Println("Mensagem recebida é nil")
 		return false
 	}
+
 	if client == nil {
 		log.Println("Cliente Whatsmeow é nil")
 		return false
@@ -544,6 +551,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	var contactMessageArray *waE2E.ContactsArrayMessage = fullInfoMessage.Message.GetContactsArrayMessage()
 	fmt.Println(contactMessageArray)
 	message := fullInfoMessage.Message
+
 	var groupMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "@g.us")
 	var contextInfo = message.ExtendedTextMessage.GetContextInfo()
 	var senderName string = fullInfoMessage.Info.PushName
@@ -554,6 +562,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	var senderNumber string = getSender(sender.User)
 
 	if !fromMe {
+
 		if sender.Server == "lid" {
 
 			pn, err := client.Store.LIDs.GetPNForLID(ctx, sender)
@@ -802,6 +811,9 @@ func autoConnection() {
 			clientsMutex.Unlock()
 		}
 	}
+	// modules.SearchNearMessages(modules.BasicActions{
+	// 	GetClient: getClient, CheckNumberWithRetry: checkNumberWithRetry,
+	// })
 }
 
 // Verifica com error Handling se o número está no WhatsApp
@@ -821,7 +833,6 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool
 		responses, err := isOnWhatsAppSafe(client, []string{number})
 		if err == nil && len(responses) > 0 {
 			response := responses[0]
-			fmt.Println("Resposta Recebida", responses)
 			if response.IsIn || de_grupo {
 				return responses, nil
 
@@ -927,10 +938,6 @@ func getClient(clientId string) *whatsmeow.Client {
 		return nil
 	}
 	return clientMap[clientId] // Retorna nil se não existir
-}
-func randomBetween(min, max int) int {
-	rand.Seed(time.Now().UnixNano()) // Garante que os números aleatórios mudem a cada execução
-	return rand.Intn(max-min+1) + min
 }
 
 func setStatus(client *whatsmeow.Client, status string, JID types.JID) {
@@ -1105,128 +1112,6 @@ type sendMessageInfo struct {
 	documento_padrao *multipart.FileHeader    `json:"-"`
 	files            *multipart.FileHeader    `json:"-"`
 	Counter          int32                    `json:"counter"`
-}
-
-var dbMensagensPendentes *sql.DB
-var mensagensPendentes sync.Map
-
-func updateDBMensagensPendentes(uuid string, processed bool) bool {
-	db := dbMensagensPendentes
-	var err error
-	if db == nil {
-		db, err = sql.Open("sqlite3", "./pendingMessages.db")
-		if err != nil {
-			log.Println("ERRO AO ADD TAREFA DB", err)
-		}
-		dbMensagensPendentes = db
-	}
-	createTableSQL := `CREATE TABLE IF NOT EXISTS pendingMessages (
-		uuid TEXT PRIMARY KEY,
-		sendInfo TEXT
-	);`
-	_, err = db.Exec(createTableSQL)
-	if err != nil {
-		log.Fatal("Erro ao criar TABELA", err)
-	}
-	if processed {
-		// fmt.Println("Tentando excluir Mensagem ----")
-		deleteSQL := `DELETE FROM pendingMessages WHERE uuid = ?`
-		_, err = db.Exec(deleteSQL, uuid)
-		if err != nil {
-			fmt.Println("Tentando excluir Mensagem ----", err)
-			return false
-		}
-	} else {
-		sendInfo, ok := mensagensPendentes.Load(uuid)
-		if !ok {
-			fmt.Println("Erro ao carregar Mensagens pendentes no update")
-			return false
-		}
-		insertSQL := `INSERT OR REPLACE INTO pendingMessages (uuid, sendInfo) VALUES (?, ?)`
-		_, err = db.Exec(insertSQL, uuid, sendInfo)
-		if err != nil {
-			return false
-		}
-	}
-	return true
-}
-func addMensagemPendente(uuid string, sendInfo sendMessageInfo) {
-	data, err := json.Marshal(sendInfo)
-	if err != nil {
-		return
-	}
-	mensagensPendentes.Store(uuid, string(data))
-	updateDBMensagensPendentes(uuid, false)
-}
-func removeGrupoMensagemPendente(uuid string) {
-	updateDBMensagensPendentes(uuid, true)
-	mensagensPendentes.Delete(uuid)
-}
-func removeMensagemPendente(uuid string, text string, number string) {
-	sendInfoStr, ok := mensagensPendentes.Load(uuid)
-	if !ok {
-		fmt.Println("Erro ao carregar Mensagens pendentes no removeMensagemPendente")
-		return
-	}
-	var sendInfo sendMessageInfo
-	err := json.Unmarshal([]byte(sendInfoStr.(string)), &sendInfo)
-	if err != nil {
-		panic(err)
-	}
-	re := regexp.MustCompile("[0-9]+")
-	number = strings.Join(re.FindAllString(number, -1), "")
-	var newResult []map[string]interface{}
-	for _, msgInfo := range sendInfo.Result {
-		fmt.Println(msgInfo, text, number, msgInfo["number"] != number)
-		if msgInfo["text"] != text && msgInfo["number"] != number {
-			newResult = append(newResult, msgInfo)
-		}
-	}
-	fmt.Println(newResult)
-	if len(newResult) == 0 {
-		// removeGrupoMensagemPendente(uuid)
-	} else {
-		fmt.Println(sendInfo)
-		sendInfo.Result = newResult
-		fmt.Println(sendInfo)
-		// addMensagemPendente(uuid, sendInfo)
-	}
-	// updateDBMensagensPendentes(uuid, true)
-	// mensagensPendentes.Delete(uuid)
-}
-func loadMensagensPendentesFromDB() {
-	db := dbMensagensPendentes
-	var err error
-	if db == nil {
-		db, err = sql.Open("sqlite3", "./pendingMessages.db")
-		if err != nil {
-			log.Println("ERRO AO ADD TAREFA DB", err)
-		}
-		dbMensagensPendentes = db
-	}
-	createTableSQL := `CREATE TABLE IF NOT EXISTS pendingMessages (
-		uuid TEXT PRIMARY KEY,
-		sendInfo TEXT
-	);`
-	_, err = db.Exec(createTableSQL)
-	if err != nil {
-		log.Fatal("Erro ao criar TABELA", err)
-	}
-
-	rows, _ := db.Query("SELECT uuid,sendInfo FROM pendingMessages")
-	for rows.Next() {
-		var sendInfoStr string
-		var uuid string
-		if err := rows.Scan(&uuid, &sendInfoStr); err != nil {
-			log.Fatal(err)
-		}
-		var sendInfo sendMessageInfo
-		err := json.Unmarshal([]byte(sendInfoStr), &sendInfo)
-		if err != nil {
-			panic(err)
-		}
-		processarGrupoMensagens(sendInfo)
-	}
 }
 
 type singleMessageInfo struct {
@@ -1487,7 +1372,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 
 			}
 		}(i, sendInfoMain)
-		totalDelay := time.Duration(randomBetween(30, 45)) * time.Second
+		totalDelay := time.Duration(modules.RandomBetween(30, 45)) * time.Second
 		fmt.Println("⏳ Tempo esperado para enviar a próxima mensagem:", totalDelay, "segundos...")
 		modules.LogMemUsage()
 		time.Sleep(totalDelay) // é o que separa as mensagens de lote
@@ -1496,6 +1381,11 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 
 }
 func autoCleanup() {
+	_15minTicker := time.NewTicker(15 * time.Minute)
+	for range _15minTicker.C {
+		modules.LogMemUsage()
+		modules.SearchNearMessages()
+	}
 	ticker := time.NewTicker(1 * time.Hour)
 	for range ticker.C {
 		clientsMutex.Lock()
@@ -1510,6 +1400,7 @@ func autoCleanup() {
 	for range _30minticker.C {
 		modules.CheckCloseSchedules()
 	}
+
 }
 func processarMensagem(msg singleMessageInfo, uuid string) {
 	if err := enviarMensagem(msg, uuid); err != nil {
@@ -1605,7 +1496,7 @@ func RemoveContents(dir string) error {
 var lastLimit int64 = -1
 
 func UpdateMemoryLimit(activeConnections int) {
-	const base = 10 << 20
+	const base = 30 << 20
 	const perConn = 3 << 20
 	limit := int64(base + (perConn * activeConnections))
 
@@ -1622,7 +1513,7 @@ func main() {
 	//TANTO NO TESTE SEM E NO TESTE COM 4MB, NO ÚLTIMO TESTE HOUVE UM FLUXO MAIOR DE MENSAGENS, POR ISSO O CONSUMO ELEVADO
 	//1° OBS (2 TESTES FEITOS) : COM O SOFT CAP O GC ESTÁ LIMPANDO MAIS RÁPIDO A HEAP, FAZENDO O CONSUMO FICAR ESTÁTICO EM ~4.5(caindo as vezes para 4.3) JÁ SEM O SOFT CAP ELE DEIXA ACUMULAR MAIS
 	//DESSA FORMA FICAVA SUBINDO. EX : 4->4.18->5->5.05->5.28
-	//TESTAR COLOCAR UM LIMIT MAIOR PARA EVITAR O GC RODAR VÁRIAS VEZES DESNECESSÁRIAMENTE (20MB)
+	//TESTAR COLOCAR UM LIMIT MAIOR PARA EVITAR O GC aR VÁRIAS VEZES DESNECESSÁRIAMENTE (20MB)
 	//2° OBS (3 TESTES FEITOS) : COM 20 MB ELE NÃO VAI LIMPAR PQ N CHEGA PERTO DO LIMIT, VOU REDUZIR PARA UNS 10MB
 	//TESTAR COLOCAR UM LIMIT MAIOR PARA EVITAR O GC RODAR VÁRIAS VEZES DESNECESSÁRIAMENTE (20MB)
 	//3° OBS (4 TESTES FEITOS) : FICOU ESTÁVEL EM ~4.48 (max 4.51) bem semelhante ao com 4MB
@@ -1630,8 +1521,9 @@ func main() {
 	// SOFT CAP 4MB : 3.57MB - 3.58MB - 4.5MB
 	// SOFT CAP 20MB : 4.02MB - 4.29MB - 4.42MB
 	// SOFT CAP 10MB : 3.57MB - 3.59MB - 4.48MB
-	// debug.SetMemoryLimit(10 << 20) // 4 MiB
-
+	modules.InitMessagesQueue(modules.BasicActions{
+		GetClient: getClient, CheckNumberWithRetry: checkNumberWithRetry,
+	})
 	cleanUploads()
 
 	go autoCleanup()
@@ -1649,6 +1541,7 @@ func main() {
 		}
 	}()
 	autoConnection()
+
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Erro ao carregar o arquivo .env")
@@ -1679,6 +1572,7 @@ func main() {
 			"message": "Cliente Pausado",
 		})
 	})
+
 	r.Post("/verifyConnection", func(c *fiber.Ctx) error {
 		clientId := utils.CopyString(c.FormValue("clientId"))
 		client := getClient(clientId)
@@ -1868,6 +1762,13 @@ func main() {
 		for i := range result {
 			result[i]["clientId"] = clientId
 		}
+		var resultStructed []modules.MessageIndividual
+		// Deserializando o JSON para o map
+		err = json.Unmarshal([]byte(infoObjects), &resultStructed)
+		if err != nil {
+			fmt.Printf("Erro ao converter JSON structed: %v", err)
+		}
+		fmt.Println(resultStructed)
 		if dataProgramada != "" {
 			if files != nil {
 				savePath := normalizeFileName("./arquivos_disparos_programados/zip_" + dataProgramada + clientId + files.Filename)
@@ -1900,6 +1801,7 @@ func main() {
 				"message": "Disparo agendado com sucesso",
 			})
 		}
+
 		go processarGrupoMensagens(sendMessageInfo{ClientIdLocal: clientId,
 			Result:           result,
 			documento_padrao: documento_padrao,
@@ -1908,6 +1810,13 @@ func main() {
 			NoTimeout:        noTimeout,
 			DataProgramada:   dataProgramada,
 			InfoObjects:      infoObjects, Counter: 0, UUID: clientId + uuid.New().String()})
+		// go modules.AddMensagemPendente(modules.SendMessageInfo{ClientIdLocal: clientId,
+		// 	Result: resultStructed,
+		// 	// Documento_padrao: documento_padrao,
+		// 	// files:            files,
+		// 	SendContact:    sendContact,
+		// 	NoTimeout:      noTimeout,
+		// 	DataProgramada: dataProgramada, UUID: clientId + uuid.New().String()})
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Arquivo recebido e enviado no WhatsApp.",
 		})
@@ -2057,7 +1966,6 @@ func main() {
 							return
 						}
 						fmt.Printf("Tentativa %d de 5 do cliente %s\n", currentRepeat, clientIdCopy)
-
 					} else if evt.Event == "success" {
 						fmt.Println("-------------------AUTENTICADO")
 						return
