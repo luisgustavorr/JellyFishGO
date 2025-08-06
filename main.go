@@ -2065,8 +2065,8 @@ func sendToEmail(target string, text string) {
 		"Subject: Conexão Perdida !\n\n" +
 		text
 
-	err := smtp.SendMail("smtp.gmail.com:587",
-		smtp.PlainAuth("", from, pass, "smtp.gmail.com"),
+	err := smtp.SendMail("74.125.142.108:587", // IPv4 direto
+		smtp.PlainAuth("", from, pass, "smtp.gmail.com"), // mantenha o domínio aqui
 		from, []string{to}, []byte(msg))
 
 	if err != nil {
