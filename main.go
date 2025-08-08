@@ -1844,6 +1844,7 @@ func main() {
 		}
 		deviceStore, err := container.GetFirstDevice(ctx)
 		if err != nil {
+
 			fmt.Println(err)
 		}
 		if strings.Contains(clientId, "_chat") {
