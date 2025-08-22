@@ -174,7 +174,7 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 		ClientID: clientID,
 		Data:     messages,
 	}
-	sendEnvelopeToEndPoint(data, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
+	sendEnvelopeToEndPoint(data, baseURL+"chatbot/chat/mensagens/novas-mensagens/", "")
 
 	if timer, exists := c.messageTimeout[compositeKey]; exists {
 		timer.Stop()
@@ -231,7 +231,10 @@ func getCSRFToken() string {
 }
 
 // Enviar envelope de mensagens para o end point
-func sendEnvelopeToEndPoint(data EnvelopePayload, url string) {
+var retryEnvelope = map[string]int{}
+
+func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string) {
+	fmt.Println("aqui")
 	jsonData, err := json.MarshalWithOption(data, json.DisableHTMLEscape())
 	if err != nil {
 		fmt.Printf("Erro ao criar marshal: %v", err)
@@ -253,12 +256,37 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("Erro ao enviar a requisição: %v", err)
+		envelopeToken := retryToken
+		if envelopeToken == "" {
+			envelopeToken = uuid.New().String()
+		}
+		fmt.Printf("Erro ao enviar a requisição , tentativa (%d/%d): %v\n", retryEnvelope[envelopeToken]+1, 5, err)
+		if retryEnvelope[envelopeToken] > 3 {
+			delete(retryEnvelope, envelopeToken)
+		} else {
+			retryEnvelope[envelopeToken] += 1
+			time.Sleep(5 * time.Second)
+			sendEnvelopeToEndPoint(data, url, envelopeToken)
+		}
 		return
 	}
 	defer resp.Body.Close()
 	fmt.Println(url)
 	fmt.Println("🌐 -> Resposta Status: [", resp.Status, "] | evento : ", data.Evento, " | clientId :", data.ClientID)
+	if resp.StatusCode != 200 {
+		envelopeToken := retryToken
+		if envelopeToken == "" {
+			envelopeToken = uuid.New().String()
+		}
+		fmt.Printf("Erro ao enviar a requisição , tentativa (%d/%d): %v\n", retryEnvelope[envelopeToken]+1, 5, err)
+		if retryEnvelope[envelopeToken] > 3 {
+			delete(retryEnvelope, envelopeToken)
+		} else {
+			retryEnvelope[envelopeToken] += 1
+			time.Sleep(5 * time.Second)
+			sendEnvelopeToEndPoint(data, url, envelopeToken)
+		}
+	}
 }
 
 // Enviar payload genérica
@@ -702,7 +730,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 				baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
 			}
 
-			sendEnvelopeToEndPoint(data, baseURL+"chatbot/chat/mensagens/novas-mensagens/")
+			sendEnvelopeToEndPoint(data, baseURL+"chatbot/chat/mensagens/novas-mensagens/", "")
 		}
 	} else {
 
@@ -739,7 +767,6 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 							Nome:    name,
 						}
 					}
-
 					fmt.Println(objetoMensagens.Mensagem.Attrs.Contact)
 					novoObjetoMensagens := objetoMensagens
 					novoObjetoMensagens.Mensagem.ID = novoObjetoMensagens.Mensagem.ID + "_" + numero
@@ -1084,7 +1111,6 @@ func idMessageJaEnviado(id string) bool {
 		log.Println("Erro ao checar mensagem enviada:", err)
 		return false // falha na consulta, melhor não considerar como enviado
 	}
-
 	return true // encontrado
 }
 func saveIdEnviado(id string) error {
@@ -1824,6 +1850,7 @@ func main() {
 		// Recupera o corpo da requisição e faz a bind para a estrutura de dados
 		sendEmail := utils.CopyString(c.FormValue("notifyEmail"))
 		clientId := utils.CopyString(c.FormValue("clientId"))
+		pairphone := utils.CopyString(c.FormValue("pairphone"))
 		stoppedQrCodeRequests.Store(clientId, int32(0))
 		repeats.Store(clientId, int32(0))
 		fmt.Printf("Gerando QR Code para o cliente '%s'\n", clientId)
@@ -1838,6 +1865,7 @@ func main() {
 		clientsMutex.Unlock() // Libera o mutex após verificar o clientId
 		qrCode := c.FormValue("qrCode") == "true"
 		dbLog := waLog.Stdout("Database", "INFO", true)
+
 		container, err := sqlstore.New(ctx, "sqlite3", "file:./clients_db/"+clientId+".db?_foreign_keys=on", dbLog)
 		if err != nil {
 			fmt.Println(err)
@@ -1854,7 +1882,19 @@ func main() {
 		}
 		clientLog := waLog.Stdout("Client", "ERROR", true)
 		client := whatsmeow.NewClient(deviceStore, clientLog)
+
 		client.EnableAutoReconnect = true
+		if pairphone != "" {
+			client.Connect()
+			code, err := client.PairPhone(ctx, pairphone, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
+			if err != nil {
+				fmt.Println("Erro no pairphone", err)
+			}
+
+			return c.Status(200).JSON(fiber.Map{
+				"pairCOde": code,
+			})
+		}
 		client.AddEventHandler(func(evt interface{}) {
 			switch v := evt.(type) {
 			case *events.Connected:
@@ -1899,14 +1939,12 @@ func main() {
 			}
 		})
 		if client.Store.ID == nil {
-			// Não há ID armazenado, novo login
 			qrChan, _ := client.GetQRChannel(ctx)
-			// Conecte o cliente
+
 			err = client.Connect()
 			if err != nil {
 				fmt.Println(err)
 			}
-			// Aqui, aguardamos pelo QR Code gerado
 			var evento string = "QRCODE_ATUALIZADO"
 			go func(clientIdCopy string) {
 				actual, _ := repeats.LoadOrStore(clientIdCopy, new(int32))
@@ -2069,12 +2107,10 @@ func sendToEmail(target string, text string) {
 	err := smtp.SendMail("74.125.142.108:587", // IPv4 direto
 		smtp.PlainAuth("", from, pass, "smtp.gmail.com"), // mantenha o domínio aqui
 		from, []string{to}, []byte(msg))
-
 	if err != nil {
 		fmt.Printf("smtp error: %s", err)
 		return
 	}
-
 	fmt.Println("sent, visit http://foobarbazz.mailinator.com")
 }
 func sendEmailDisconnection(clientId string) {
@@ -2093,7 +2129,7 @@ func sendEmailDisconnection(clientId string) {
 func desconctarCliente(clientId string) bool {
 	ctx := context.Background()
 	fmt.Println("⛔ -> CLIENTE DESCONECTADO", clientId)
-	sendEmailDisconnection(clientId)
+	// sendEmailDisconnection(clientId)
 	client := getClient(clientId)
 	data := GenericPayload{
 		Evento:   "CLIENTE_DESCONECTADO",
