@@ -255,8 +255,7 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 	req.Header.Set("X-CSRFToken", getCSRFToken())
 	client := &http.Client{}
 	resp, err := client.Do(req)
-	b, _ := json.MarshalIndent(data, "", "  ")
-	fmt.Println("Payload:", string(b))
+
 	if err != nil {
 		envelopeToken := retryToken
 		if envelopeToken == "" {
