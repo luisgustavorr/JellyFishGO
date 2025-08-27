@@ -261,7 +261,20 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 		if envelopeToken == "" {
 			envelopeToken = uuid.New().String()
 		}
-		b, _ := json.MarshalIndent(data, "", "  ")
+		var dataToLog = EnvelopePayload{
+			Sender:   data.Sender,
+			Evento:   data.Evento,
+			ClientID: data.ClientID,
+		}
+		for _, v := range data.Data {
+			nonMediaData := v
+			nonMediaData.Mensagem.Attrs.Media = "media_here"
+			nonMediaData.Mensagem.Attrs.Audio = "audio_here"
+
+			dataToLog.Data = append(dataToLog.Data, nonMediaData)
+		}
+		b, _ := json.MarshalIndent(dataToLog, "", "  ")
+		fmt.Println(resp.Request.Response)
 		fmt.Println("Payload:", string(b))
 		fmt.Printf("Erro ao enviar a requisição do '%s' , tentativa (%d/%d): %v\n", data.ClientID, retryEnvelope[envelopeToken]+1, 5, err)
 		if retryEnvelope[envelopeToken] > 3 {
@@ -280,8 +293,22 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 		if envelopeToken == "" {
 			envelopeToken = uuid.New().String()
 		}
-		b, _ := json.MarshalIndent(data, "", "  ")
+		var dataToLog = EnvelopePayload{
+			Sender:   data.Sender,
+			Evento:   data.Evento,
+			ClientID: data.ClientID,
+		}
+		for _, v := range data.Data {
+			nonMediaData := v
+			nonMediaData.Mensagem.Attrs.Media = "media_here"
+			nonMediaData.Mensagem.Attrs.Audio = "audio_here"
+			dataToLog.Data = append(dataToLog.Data, nonMediaData)
+		}
+		b, _ := json.MarshalIndent(dataToLog, "", "  ")
+		fmt.Println(resp.Request.Response)
+
 		fmt.Println("Payload:", string(b))
+
 		fmt.Printf("Erro ao enviar a requisição do '%s' , tentativa (%d/%d): %v\n", data.ClientID, retryEnvelope[envelopeToken]+1, 5, err)
 		if retryEnvelope[envelopeToken] > 3 {
 			delete(retryEnvelope, envelopeToken)
