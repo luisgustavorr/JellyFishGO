@@ -260,7 +260,8 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 		if envelopeToken == "" {
 			envelopeToken = uuid.New().String()
 		}
-		fmt.Printf("Erro ao enviar a requisição , tentativa (%d/%d): %v\n", retryEnvelope[envelopeToken]+1, 5, err)
+		fmt.Println(data)
+		fmt.Printf("Erro ao enviar a requisição do '%s' , tentativa (%d/%d): %v\n", data.ClientID, retryEnvelope[envelopeToken]+1, 5, err)
 		if retryEnvelope[envelopeToken] > 3 {
 			delete(retryEnvelope, envelopeToken)
 		} else {
@@ -277,7 +278,8 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 		if envelopeToken == "" {
 			envelopeToken = uuid.New().String()
 		}
-		fmt.Printf("Erro ao enviar a requisição , tentativa (%d/%d): %v\n", retryEnvelope[envelopeToken]+1, 5, err)
+		fmt.Println(data)
+		fmt.Printf("Erro ao enviar a requisição do '%s' , tentativa (%d/%d): %v\n", data.ClientID, retryEnvelope[envelopeToken]+1, 5, err)
 		if retryEnvelope[envelopeToken] > 3 {
 			delete(retryEnvelope, envelopeToken)
 		} else {
