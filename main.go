@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"image"
 	"image/jpeg"
+	"image/png"
 	"io"
 	"jellyFish/modules"
 	"log"
@@ -234,7 +235,6 @@ func getCSRFToken() string {
 var retryEnvelope = map[string]int{}
 
 func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string) {
-	fmt.Println("aqui")
 	jsonData, err := json.MarshalWithOption(data, json.DisableHTMLEscape())
 	if err != nil {
 		fmt.Printf("Erro ao criar marshal: %v", err)
@@ -271,7 +271,6 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 		return
 	}
 	defer resp.Body.Close()
-	fmt.Println(url)
 	fmt.Println("🌐 -> Resposta Status: [", resp.Status, "] | evento : ", data.Evento, " | clientId :", data.ClientID)
 	if resp.StatusCode != 200 {
 		envelopeToken := retryToken
@@ -852,14 +851,12 @@ func isOnWhatsAppSafe(client *whatsmeow.Client, numbers []string) ([]types.IsOnW
 func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool) (resp []types.IsOnWhatsAppResponse, err error) {
 	maxRetries := 3
 	backoff := 1 * time.Second
-
 	for i := 0; i < maxRetries; i++ {
 		responses, err := isOnWhatsAppSafe(client, []string{number})
 		if err == nil && len(responses) > 0 {
 			response := responses[0]
 			if response.IsIn || de_grupo {
 				return responses, nil
-
 			}
 		}
 		time.Sleep(backoff)
@@ -870,7 +867,6 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool
 	}
 	numberWith9 := number[:4] + "9" + number[4:]
 	fmt.Println("Tentando com 9 adicional", numberWith9)
-
 	backoff = 1 * time.Second
 	for i := 0; i < maxRetries; i++ {
 		responses, err := isOnWhatsAppSafe(client, []string{numberWith9})
@@ -1207,7 +1203,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			} else {
 				numberWithOnlyNumbers = ""
 			}
-
+			documento_padraoPath := ""
 			number := numberWithOnlyNumbers
 			client := getClient(currentClientID)
 			if client == nil {
@@ -1329,7 +1325,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 						if documento_padrao != nil {
 							uniqueFileText = ""
 						}
-						tempMessage := prepararMensagemArquivo(uniqueFileText, message, "./uploads/"+currentClientID+fileName, client, currentClientID, msg, sendInfo.UUID)
+						tempMessage, _ := prepararMensagemArquivo(uniqueFileText, message, "./uploads/"+currentClientID+fileName, client, currentClientID, msg, sendInfo.UUID)
 						if documento_padrao != nil {
 							msg.messageInfo = tempMessage
 							processarMensagem(msg, sendInfo.UUID)
@@ -1340,7 +1336,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 				}
 			}
 			if documento_padrao != nil {
-				message = prepararMensagemArquivo(text, message, "./uploads/"+currentClientID+documento_padrao.Filename, client, currentClientID, msg, sendInfo.UUID)
+				message, documento_padraoPath = prepararMensagemArquivo(text, message, "./uploads/"+currentClientID+documento_padrao.Filename, client, currentClientID, msg, sendInfo.UUID)
 			}
 			if quotedMessage != nil {
 				messageID, ok := quotedMessage["messageID"].(string)
@@ -1387,7 +1383,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			if currentCount >= int32(len(sendInfo.Result)) {
 				fmt.Println("Finalizado")
 				if documento_padrao != nil {
-					path := "./uploads/" + currentClientID + documento_padrao.Filename
+					path := documento_padraoPath
 					if err := os.Remove(path); err != nil {
 						fmt.Printf("Erro ao remover o arquivo %s: %v\n", path, err)
 					}
@@ -2261,8 +2257,35 @@ func getAudioDuration(path string) (float64, error) {
 
 	return seconds, nil
 }
+func convertPngToJpeg(pngPath string) (string, error) {
+	f, err := os.Open(pngPath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
 
-func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile string, client *whatsmeow.Client, clientId string, msg singleMessageInfo, UUID string) *waE2E.Message {
+	img, err := png.Decode(f)
+	if err != nil {
+		return "", err
+	}
+
+	outPath := pngPath[:len(pngPath)-len(".png")] + ".jpg"
+	outFile, err := os.Create(outPath)
+	if err != nil {
+		return "", err
+	}
+	defer outFile.Close()
+
+	// Encode as JPEG with quality 90 (good balance of size/quality)
+	opt := jpeg.Options{Quality: 90}
+	if err := jpeg.Encode(outFile, img, &opt); err != nil {
+		return "", err
+	}
+	os.Remove(pngPath)
+
+	return outPath, nil
+}
+func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile string, client *whatsmeow.Client, clientId string, msg singleMessageInfo, UUID string) (*waE2E.Message, string) {
 	// Abrindo o arquivo
 	if filepath.Ext(chosedFile) == ".mp3" || filepath.Ext(chosedFile) == ".ogg" {
 
@@ -2275,6 +2298,14 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		fmt.Println("chosedFile", chosedFile)
 
 	}
+	if filepath.Ext(chosedFile) == ".png" {
+		newFile, err := convertPngToJpeg(chosedFile)
+		if err != nil {
+			log.Fatal("Failed to convert PNG to JPEG:", err)
+		}
+		chosedFile = newFile
+	}
+	fmt.Println(chosedFile)
 	file, err := os.Open(chosedFile)
 	if err != nil {
 		fmt.Printf("Erro ao abrir o arquivo: %v", err)
@@ -2304,12 +2335,27 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 	kind, err := filetype.Match(buf[:512])
 	if err != nil {
 		fmt.Printf("Erro ao detectar tipo do arquivo: %v", err)
-		return nil
+		return nil, ""
 	}
 	if kind == filetype.Unknown {
 		fmt.Println("Tipo de arquivo desconhecido")
 	}
-	mimeType := kind.MIME.Value
+	mimeType := ""
+	ext := strings.ToLower(filepath.Ext(nomeArquivo))
+	switch ext {
+	case ".jpg", ".jpeg":
+		mimeType = "image/jpeg"
+	case ".png":
+		mimeType = "image/png"
+	case ".webp":
+		mimeType = "image/webp"
+	case ".mp3":
+		mimeType = "audio/mpeg"
+	case ".ogg":
+		mimeType = "audio/ogg; codecs=opus" // VERY important for iOS
+	default:
+		mimeType = kind.MIME.Value // fallback
+	}
 	fmt.Println("📁 O arquivo é um :", mimeType, " com final ", filepath.Ext(nomeArquivo))
 	mensagem_ := proto.Clone(message).(*waE2E.Message)
 	mensagem_.Conversation = nil
@@ -2356,14 +2402,15 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		}
 		fmt.Println("O arquivo é uma imagem válida.")
 		imageMsg := &waE2E.ImageMessage{
-			Caption:       proto.String(text),
-			Mimetype:      proto.String(mimeType),
-			URL:           &resp.URL,
-			DirectPath:    &resp.DirectPath,
-			MediaKey:      resp.MediaKey,
-			FileEncSHA256: resp.FileEncSHA256,
-			FileSHA256:    resp.FileSHA256,
-			FileLength:    &resp.FileLength,
+			Caption:           proto.String(text),
+			Mimetype:          proto.String(mimeType),
+			URL:               &resp.URL,
+			DirectPath:        &resp.DirectPath,
+			MediaKey:          resp.MediaKey,
+			FileEncSHA256:     resp.FileEncSHA256,
+			FileSHA256:        resp.FileSHA256,
+			FileLength:        &resp.FileLength,
+			MediaKeyTimestamp: proto.Int64(time.Now().Unix()),
 		}
 		mensagem_.ImageMessage = imageMsg
 		mensagem_.Conversation = nil
@@ -2374,15 +2421,16 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 			fmt.Printf("Erro ao fazer upload da mídia: %v", err)
 		}
 		imageMsg := &waE2E.VideoMessage{
-			Caption:       proto.String(text),
-			Mimetype:      proto.String(mimeType),
-			URL:           &resp.URL,
-			DirectPath:    &resp.DirectPath,
-			MediaKey:      resp.MediaKey,
-			FileEncSHA256: resp.FileEncSHA256,
-			FileSHA256:    resp.FileSHA256,
-			FileLength:    &resp.FileLength,
-			GifPlayback:   proto.Bool(false),
+			Caption:           proto.String(text),
+			Mimetype:          proto.String(mimeType),
+			URL:               &resp.URL,
+			DirectPath:        &resp.DirectPath,
+			MediaKey:          resp.MediaKey,
+			FileEncSHA256:     resp.FileEncSHA256,
+			FileSHA256:        resp.FileSHA256,
+			FileLength:        &resp.FileLength,
+			GifPlayback:       proto.Bool(false),
+			MediaKeyTimestamp: proto.Int64(time.Now().Unix()),
 
 			//JPEGThumbnail: thumbnailBuf.Bytes(), // removed for this example
 		}
@@ -2413,7 +2461,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		}
 		mensagem_.DocumentMessage = documentMsg
 	}
-	return mensagem_
+	return mensagem_, chosedFile
 }
 func formatPhoneNumber(phone string) string {
 	// Remove caracteres não numéricos
