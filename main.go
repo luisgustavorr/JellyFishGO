@@ -255,12 +255,15 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 	req.Header.Set("X-CSRFToken", getCSRFToken())
 	client := &http.Client{}
 	resp, err := client.Do(req)
+	b, _ := json.MarshalIndent(data, "", "  ")
+	fmt.Println("Payload:", string(b))
 	if err != nil {
 		envelopeToken := retryToken
 		if envelopeToken == "" {
 			envelopeToken = uuid.New().String()
 		}
-		fmt.Println(data)
+		b, _ := json.MarshalIndent(data, "", "  ")
+		fmt.Println("Payload:", string(b))
 		fmt.Printf("Erro ao enviar a requisição do '%s' , tentativa (%d/%d): %v\n", data.ClientID, retryEnvelope[envelopeToken]+1, 5, err)
 		if retryEnvelope[envelopeToken] > 3 {
 			delete(retryEnvelope, envelopeToken)
@@ -278,7 +281,8 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 		if envelopeToken == "" {
 			envelopeToken = uuid.New().String()
 		}
-		fmt.Println(data)
+		b, _ := json.MarshalIndent(data, "", "  ")
+		fmt.Println("Payload:", string(b))
 		fmt.Printf("Erro ao enviar a requisição do '%s' , tentativa (%d/%d): %v\n", data.ClientID, retryEnvelope[envelopeToken]+1, 5, err)
 		if retryEnvelope[envelopeToken] > 3 {
 			delete(retryEnvelope, envelopeToken)
