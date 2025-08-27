@@ -274,7 +274,6 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 			dataToLog.Data = append(dataToLog.Data, nonMediaData)
 		}
 		b, _ := json.MarshalIndent(dataToLog, "", "  ")
-		fmt.Println(resp.Request.Response)
 		fmt.Println("Payload:", string(b))
 		fmt.Printf("Erro ao enviar a requisição do '%s' , tentativa (%d/%d): %v\n", data.ClientID, retryEnvelope[envelopeToken]+1, 5, err)
 		if retryEnvelope[envelopeToken] > 3 {
@@ -2327,10 +2326,9 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 			log.Fatal("Falha ao converter:", err)
 		}
 
-		fmt.Println("chosedFile", chosedFile)
-
 	}
 	if filepath.Ext(chosedFile) == ".png" {
+		fmt.Println("📁🔄 -> Convertendo arquivo PNG para JPGEG")
 		newFile, err := convertPngToJpeg(chosedFile)
 		if err != nil {
 			log.Fatal("Failed to convert PNG to JPEG:", err)
