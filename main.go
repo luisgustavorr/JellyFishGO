@@ -1206,10 +1206,12 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 		leitorZip = zipReader
 	}
 	counter := sendInfoMain.Counter
+	documento_padrao_CAMINHO_INICIAL := "./uploads/" + sendInfoMain.ClientIdLocal + sendInfoMain.documento_padrao.Filename
+
 	for i := range sendInfoMain.Result {
 		wg.Add(1)
 		workers <- struct{}{}
-		go func(index int, sendInfo sendMessageInfo) {
+		go func(index int, sendInfo sendMessageInfo, documento_padraoPath string) {
 			documento_padrao := sendInfo.documento_padrao
 			sendContact := sendInfo.SendContact
 			item := sendInfo.Result[i]
@@ -1243,7 +1245,6 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			} else {
 				numberWithOnlyNumbers = ""
 			}
-			documento_padraoPath := ""
 			number := numberWithOnlyNumbers
 			client := getClient(currentClientID)
 			if client == nil {
@@ -1376,7 +1377,9 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 				}
 			}
 			if documento_padrao != nil {
-				message, documento_padraoPath = prepararMensagemArquivo(text, message, "./uploads/"+currentClientID+documento_padrao.Filename, client, currentClientID, msg, sendInfo.UUID)
+				message, documento_padraoPath = prepararMensagemArquivo(text, message, documento_padraoPath, client, currentClientID, msg, sendInfo.UUID)
+				documento_padrao_CAMINHO_INICIAL = documento_padraoPath
+
 			}
 			if quotedMessage != nil {
 				messageID, ok := quotedMessage["messageID"].(string)
@@ -1430,11 +1433,11 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 				}
 
 			}
-		}(i, sendInfoMain)
+		}(i, sendInfoMain, documento_padrao_CAMINHO_INICIAL)
 		totalDelay := time.Duration(modules.RandomBetween(30, 45)) * time.Second
 		fmt.Println("⏳ Tempo esperado para enviar a próxima mensagem:", totalDelay, "segundos...")
 		modules.LogMemUsage()
-		time.Sleep(totalDelay) // é o que separa as mensagens de lote
+		time.Sleep(3 * time.Second) // é o que separa as mensagens de lote
 	}
 	wg.Wait()
 
