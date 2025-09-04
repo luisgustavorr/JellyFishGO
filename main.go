@@ -1441,7 +1441,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 		totalDelay := time.Duration(modules.RandomBetween(30, 45)) * time.Second
 		fmt.Println("⏳ Tempo esperado para enviar a próxima mensagem:", totalDelay, "segundos...")
 		modules.LogMemUsage()
-		time.Sleep(3 * time.Second) // é o que separa as mensagens de lote
+		time.Sleep(totalDelay) // é o que separa as mensagens de lote
 	}
 	wg.Wait()
 
