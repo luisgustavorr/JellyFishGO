@@ -14,7 +14,6 @@ import (
 	"jellyFish/modules"
 	"log"
 	"net/http"
-	"net/smtp"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -63,7 +62,7 @@ var (
 	clientMap    = make(map[string]*whatsmeow.Client)
 	clientsMutex sync.RWMutex // Mutex simples
 )
-var mapOficial, _ = loadConfigInicial(os.Getenv("STRING_CONN"))
+var mapOficial = loadConfigInicial(os.Getenv("STRING_CONN"))
 var focusedMessagesKeys = []string{}
 var _ = godotenv.Load()
 
@@ -186,12 +185,14 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 }
 
 // Carregar configuração inicial
-func loadConfigInicial(dsn string) (map[string]string, map[string]string) {
+func loadConfigInicial(dsn string) map[string]string {
 	// Conectar ao banco de dados
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		log.Println(err)
 	}
+	defer db.Close()
+
 	if err := db.Ping(); err != nil {
 		log.Println(err)
 	}
@@ -218,9 +219,9 @@ func loadConfigInicial(dsn string) (map[string]string, map[string]string) {
 	}
 	fmt.Println("MODO DESENVOLVIMENTO", desenvolvimento)
 	if desenvolvimento {
-		return mapDesenvolvimento, mapDesenvolvimento
+		return mapDesenvolvimento
 	}
-	return mapProducao, mapDesenvolvimento
+	return mapProducao
 }
 
 // Pegar Token CSRFT
@@ -1195,12 +1196,12 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 	if sendInfoMain.files != nil {
 		zipFile, err := sendInfoMain.files.Open()
 		if err != nil {
-			log.Fatal("Erro abrindo ZIP", err)
+			log.Println("Erro abrindo ZIP", err)
 		}
 		defer zipFile.Close()
 		zipReader, err := zip.NewReader(zipFile, sendInfoMain.files.Size)
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
 		}
 		leitorZip = zipReader
 	}
@@ -2103,6 +2104,8 @@ func getOrSetEmails(query string, args []any) *sql.Rows {
 	if err != nil {
 		log.Println("ERRO AO ADD TAREFA DB", err)
 	}
+	defer db.Close()
+
 	createTableSQL := `CREATE TABLE IF NOT EXISTS emails_conexoes (
 		clientId TEXT,
 		email TEXT
@@ -2125,42 +2128,43 @@ func getOrSetEmails(query string, args []any) *sql.Rows {
 	// 	}
 	// 	fmt.Println("AAAA ->", email, clientId)
 	// }
-	defer db.Close()
 	return rows
 }
-func sendToEmail(target string, text string) {
-	fmt.Println("Enviando email de desconexão para", target)
-	from := "oisharkbusiness@gmail.com"
-	pass := os.Getenv("EMAIL_PASS")
-	to := target
 
-	msg := "From: " + from + "\n" +
-		"To: " + to + "\n" +
-		"Subject: Conexão Perdida !\n\n" +
-		text
+// func sendToEmail(target string, text string) {
+// 	fmt.Println("Enviando email de desconexão para", target)
+// 	from := "oisharkbusiness@gmail.com"
+// 	pass := os.Getenv("EMAIL_PASS")
+// 	to := target
 
-	err := smtp.SendMail("74.125.142.108:587", // IPv4 direto
-		smtp.PlainAuth("", from, pass, "smtp.gmail.com"), // mantenha o domínio aqui
-		from, []string{to}, []byte(msg))
-	if err != nil {
-		fmt.Printf("smtp error: %s", err)
-		return
-	}
-	fmt.Println("sent, visit http://foobarbazz.mailinator.com")
-}
-func sendEmailDisconnection(clientId string) {
-	rows := getOrSetEmails("SELECT * FROM emails_conexoes WHERE clientId = ?", []any{clientId})
-	fmt.Println()
-	defer rows.Close()
-	for rows.Next() {
-		var clientId string
-		var email string
-		if err := rows.Scan(&clientId, &email); err != nil {
-			log.Fatal(err)
-		}
-		sendToEmail(email, "Sua conexão no whatsapp foi perdida, acesse o Shark Business e verifique ")
-	}
-}
+// 	msg := "From: " + from + "\n" +
+// 		"To: " + to + "\n" +
+// 		"Subject: Conexão Perdida !\n\n" +
+// 		text
+
+//		err := smtp.SendMail("74.125.142.108:587", // IPv4 direto
+//			smtp.PlainAuth("", from, pass, "smtp.gmail.com"), // mantenha o domínio aqui
+//			from, []string{to}, []byte(msg))
+//		if err != nil {
+//			fmt.Printf("smtp error: %s", err)
+//			return
+//		}
+//		fmt.Println("sent, visit http://foobarbazz.mailinator.com")
+//	}
+//
+//	func sendEmailDisconnection(clientId string) {
+//		rows := getOrSetEmails("SELECT * FROM emails_conexoes WHERE clientId = ?", []any{clientId})
+//		fmt.Println()
+//		defer rows.Close()
+//		for rows.Next() {
+//			var clientId string
+//			var email string
+//			if err := rows.Scan(&clientId, &email); err != nil {
+//				log.Fatal(err)
+//			}
+//			// sendToEmail(email, "Sua conexão no whatsapp foi perdida, acesse o Shark Business e verifique ")
+//		}
+//	}
 func desconctarCliente(clientId string) bool {
 	ctx := context.Background()
 	fmt.Println("⛔ -> CLIENTE DESCONECTADO", clientId)
@@ -2331,7 +2335,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		var err error
 		chosedFile, err = converterParaOgg(chosedFile)
 		if err != nil {
-			log.Fatal("Falha ao converter:", err)
+			log.Println("Falha ao converter:", err)
 		}
 
 	}
@@ -2339,7 +2343,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		fmt.Println("📁🔄 -> Convertendo arquivo PNG para JPGEG")
 		newFile, err := convertPngToJpeg(chosedFile)
 		if err != nil {
-			log.Fatal("Failed to convert PNG to JPEG:", err)
+			log.Println("Failed to convert PNG to JPEG:", err)
 		}
 		chosedFile = newFile
 	}
