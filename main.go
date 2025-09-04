@@ -1206,7 +1206,11 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 		leitorZip = zipReader
 	}
 	counter := sendInfoMain.Counter
-	documento_padrao_CAMINHO_INICIAL := "./uploads/" + sendInfoMain.ClientIdLocal + sendInfoMain.documento_padrao.Filename
+
+	documento_padrao_CAMINHO_INICIAL := ""
+	if sendInfoMain.documento_padrao != nil {
+		documento_padrao_CAMINHO_INICIAL = "./uploads/" + sendInfoMain.ClientIdLocal + sendInfoMain.documento_padrao.Filename
+	}
 
 	for i := range sendInfoMain.Result {
 		wg.Add(1)
