@@ -475,7 +475,6 @@ var messagesQueue = NewQueue()
 
 // Loga as informações de requisições
 func requestLogger(c *fiber.Ctx) error {
-	fmt.Println("Teste")
 	start := time.Now()
 	method := c.Method()
 	path := c.Path()
@@ -1210,7 +1209,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 	if sendInfoMain.documento_padrao != nil {
 		documento_padrao_CAMINHO_INICIAL = "./uploads/" + sendInfoMain.ClientIdLocal + sendInfoMain.documento_padrao.Filename
 	}
-
+	manyResults := len(sendInfoMain.Result)
 	for i := range sendInfoMain.Result {
 		wg.Add(1)
 		workers <- struct{}{}
@@ -1437,21 +1436,24 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 
 			}
 		}(i, sendInfoMain, documento_padrao_CAMINHO_INICIAL)
-		nextItem := sendInfoMain.Result[i]
-		totalDelay := time.Duration(modules.RandomBetween(30, 45)) * time.Second
-		if nextItem != nil {
-			text := nextItem["text"].(string)
-			textLen := float64(len(text)) * 0.05
-			if textLen > 20 {
-				textLen = 20
+		fmt.Println(manyResults, i+1)
+		if manyResults > i+1 {
+			nextItem := sendInfoMain.Result[i+1]
+			if nextItem != nil {
+				totalDelay := time.Duration(modules.RandomBetween(30, 45)) * time.Second
+				text := nextItem["text"].(string)
+				textLen := float64(len(text)) * 0.05
+				if textLen > 20 {
+					textLen = 20
+				}
+				fmt.Println("⏳ Delay por letra:", textLen, "s")
+				totalDelay = time.Duration((textLen + totalDelay.Seconds()) * float64(time.Second))
+				fmt.Println("⏳ Tempo esperado para enviar a próxima mensagem:", totalDelay, "segundos...")
+				modules.LogMemUsage()
+				time.Sleep(totalDelay) // é o que separa as mensagens de lote
 			}
-			fmt.Println("Tamanho texto prox mensagem:", textLen+totalDelay.Seconds())
-			fmt.Println("⏳ Delay por letra:", textLen, "s")
-			totalDelay = time.Duration((textLen + totalDelay.Seconds()) * float64(time.Second))
 		}
-		fmt.Println("⏳ Tempo esperado para enviar a próxima mensagem:", totalDelay, "segundos...")
-		modules.LogMemUsage()
-		time.Sleep(totalDelay) // é o que separa as mensagens de lote
+
 	}
 	wg.Wait()
 
