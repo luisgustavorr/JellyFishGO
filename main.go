@@ -393,10 +393,8 @@ var bufPool = sync.Pool{
 
 // Recupera arquivos recebidos pela mensagem
 func getMedia(ctx context.Context, evt *events.Message, clientId string) (string, string) {
-
 	bufPtr := bufPool.Get().(*[]byte)
 	buf := *bufPtr
-
 	defer func() {
 		*bufPtr = buf[:0]
 		bufPool.Put(bufPtr)
@@ -477,6 +475,7 @@ var messagesQueue = NewQueue()
 
 // Loga as informações de requisições
 func requestLogger(c *fiber.Ctx) error {
+	fmt.Println("Teste")
 	start := time.Now()
 	method := c.Method()
 	path := c.Path()
@@ -1438,7 +1437,18 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 
 			}
 		}(i, sendInfoMain, documento_padrao_CAMINHO_INICIAL)
+		nextItem := sendInfoMain.Result[i]
 		totalDelay := time.Duration(modules.RandomBetween(30, 45)) * time.Second
+		if nextItem != nil {
+			text := nextItem["text"].(string)
+			textLen := float64(len(text)) * 0.05
+			if textLen > 20 {
+				textLen = 20
+			}
+			fmt.Println("Tamanho texto prox mensagem:", textLen+totalDelay.Seconds())
+			fmt.Println("⏳ Delay por letra:", textLen, "s")
+			totalDelay = time.Duration((textLen + totalDelay.Seconds()) * float64(time.Second))
+		}
 		fmt.Println("⏳ Tempo esperado para enviar a próxima mensagem:", totalDelay, "segundos...")
 		modules.LogMemUsage()
 		time.Sleep(totalDelay) // é o que separa as mensagens de lote
