@@ -2424,7 +2424,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 	}
 	fmt.Println("📁 O arquivo é um :", mimeType, " com final ", filepath.Ext(nomeArquivo))
 	mensagem_ := proto.Clone(message).(*waE2E.Message)
-	mensagem_.ExtendedTextMessage.Text = nil
+	mensagem_.ExtendedTextMessage = nil
 	semExtensao := strings.TrimSuffix(nomeArquivo, filepath.Ext(nomeArquivo))
 	if filetype.IsAudio(buf) || filepath.Ext(nomeArquivo) == ".mp3" {
 		fmt.Println("REsultado ogg", chosedFile)
@@ -2457,7 +2457,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 			msg.messageInfo = mensagem_
 			processarMensagem(msg, UUID)
 		}
-		mensagem_.ExtendedTextMessage.Text = nil
+		mensagem_.ExtendedTextMessage = nil
 		mensagem_.AudioMessage = imageMsg
 
 	} else if filetype.IsImage(buf) {
@@ -2478,8 +2478,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 			MediaKeyTimestamp: proto.Int64(time.Now().Unix()),
 		}
 		mensagem_.ImageMessage = imageMsg
-		mensagem_.ExtendedTextMessage.Text = nil
-
+		mensagem_.ExtendedTextMessage = nil
 	} else if filetype.IsVideo(buf) {
 		resp, err := client.Upload(context.Background(), buf, whatsmeow.MediaVideo)
 		if err != nil {
