@@ -1314,7 +1314,11 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			}
 			msg.JID = JID
 			setStatus(client, "digitando", JID)
-			message := &waE2E.Message{Conversation: &text}
+			message := &waE2E.Message{
+				ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+					Text: proto.String(text),
+				},
+			}
 			if sendContact != "" {
 				var sendContactMap map[string]string
 				// Deserializando o JSON corretamente para o map
@@ -1513,7 +1517,8 @@ func enviarMensagem(msg singleMessageInfo, uuid string) error {
 	focus := msg.focus
 	idMensagem := msg.idMensagem
 	number := msg.number
-	fmt.Println("JID ENVIADO", JID)
+	inJSONMessageInfo, _ := json.MarshalIndent(msg.messageInfo, "", "  ")
+	fmt.Println("JID ENVIADO", JID, string(inJSONMessageInfo))
 
 	retornoEnvio, err := client.SendMessage(context, JID, msg.messageInfo)
 	// fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", JID, clientId, text, number)
@@ -2419,7 +2424,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 	}
 	fmt.Println("📁 O arquivo é um :", mimeType, " com final ", filepath.Ext(nomeArquivo))
 	mensagem_ := proto.Clone(message).(*waE2E.Message)
-	mensagem_.Conversation = nil
+	mensagem_.ExtendedTextMessage.Text = nil
 	semExtensao := strings.TrimSuffix(nomeArquivo, filepath.Ext(nomeArquivo))
 	if filetype.IsAudio(buf) || filepath.Ext(nomeArquivo) == ".mp3" {
 		fmt.Println("REsultado ogg", chosedFile)
@@ -2448,12 +2453,11 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		}
 
 		if text != "" {
-			mensagem_.Conversation = &text
+			mensagem_.ExtendedTextMessage.Text = &text
 			msg.messageInfo = mensagem_
 			processarMensagem(msg, UUID)
 		}
-		mensagem_.Conversation = nil
-
+		mensagem_.ExtendedTextMessage.Text = nil
 		mensagem_.AudioMessage = imageMsg
 
 	} else if filetype.IsImage(buf) {
@@ -2474,7 +2478,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 			MediaKeyTimestamp: proto.Int64(time.Now().Unix()),
 		}
 		mensagem_.ImageMessage = imageMsg
-		mensagem_.Conversation = nil
+		mensagem_.ExtendedTextMessage.Text = nil
 
 	} else if filetype.IsVideo(buf) {
 		resp, err := client.Upload(context.Background(), buf, whatsmeow.MediaVideo)
