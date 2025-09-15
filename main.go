@@ -809,8 +809,8 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 					novoObjetoMensagens.Mensagem.ID = novoObjetoMensagens.Mensagem.ID + "_" + numero
 					fmt.Println(novoObjetoMensagens.Mensagem.Attrs)
 					messagesQueue.AddMessage(clientId, novoObjetoMensagens, senderNumber)
-					fmt.Printf("------------------ %s Receiving Message Event | By Group : %v ------------------------ \n\n", clientId, groupMessage)
-					fmt.Println("📩 -> Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text, " | By Group:", groupMessage)
+					fmt.Printf("------------------ %s Receiving Message Event | By Group : %v | Is Media : %v ------------------------ \n\n", clientId, groupMessage, media != "")
+					fmt.Println("📩 -> Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text, " | By Group:", groupMessage, "| Is Media :", media != "")
 					saveIdEnviado(uniqueMessageID)
 				}
 			} else {
@@ -823,8 +823,8 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 				var MessageID []types.MessageID = []types.MessageID{id_message}
 				client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
 				messagesQueue.AddMessage(clientId, objetoMensagens, senderNumber)
-				fmt.Printf("------------------ %s Receiving Message Event | By Group : %v ------------------------ \n\n", clientId, groupMessage)
-				fmt.Println("📩 -> Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text, " | By Group:", groupMessage)
+				fmt.Printf("------------------ %s Receiving Message Event | By Group : %v | Is Media : %v ------------------------ \n\n", clientId, groupMessage, media != "")
+				fmt.Println("📩 -> Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text, " | By Group:", groupMessage, "| Is Media :", media != "")
 				saveIdEnviado(uniqueMessageID)
 			}
 
