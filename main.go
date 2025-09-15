@@ -2453,7 +2453,10 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		}
 
 		if text != "" {
-			mensagem_.ExtendedTextMessage.Text = &text
+			if mensagem_.ExtendedTextMessage == nil {
+				mensagem_.ExtendedTextMessage = &waE2E.ExtendedTextMessage{}
+			}
+			mensagem_.ExtendedTextMessage.Text = proto.String(text)
 			msg.messageInfo = mensagem_
 			processarMensagem(msg, UUID)
 		}
