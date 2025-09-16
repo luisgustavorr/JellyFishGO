@@ -1189,7 +1189,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 	workers := make(chan struct{}, 20)
 	limiter := rate.NewLimiter(rate.Every(2*time.Second), 1)
 	var wg sync.WaitGroup
-	fmt.Printf("Processando grupo de %v mensagens para %s \n", len(sendInfoMain.Result), sendInfoMain.ClientIdLocal)
+	fmt.Printf("Processando grupo de %v mensagens para %s | ID Disparo : %s \n", len(sendInfoMain.Result), sendInfoMain.ClientIdLocal, sendInfoMain.UUID)
 	var leitorZip *zip.Reader = nil
 	if sendInfoMain.files != nil {
 		zipFile, err := sendInfoMain.files.Open()
@@ -1518,7 +1518,7 @@ func enviarMensagem(msg singleMessageInfo, uuid string) error {
 	idMensagem := msg.idMensagem
 	number := msg.number
 	inJSONMessageInfo, _ := json.MarshalIndent(msg.messageInfo, "", "  ")
-	fmt.Println("JID ENVIADO", JID, string(inJSONMessageInfo))
+	fmt.Println("ID Disparo :", uuid, " | JID ENVIADO ", JID, string(inJSONMessageInfo))
 
 	retornoEnvio, err := client.SendMessage(context, JID, msg.messageInfo)
 	// fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", JID, clientId, text, number)
