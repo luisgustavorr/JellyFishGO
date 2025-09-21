@@ -8,6 +8,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image"
+	"image/color"
+	"image/draw"
 	"image/jpeg"
 	"image/png"
 	"io"
@@ -275,10 +277,14 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 			dataToLog.Data = append(dataToLog.Data, nonMediaData)
 		}
 		b, _ := json.MarshalIndent(dataToLog, "", "  ")
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return
+		body := []byte{}
+		if resp != nil {
+			body, err = io.ReadAll(resp.Body)
+			if err != nil {
+				return
+			}
 		}
+
 		fmt.Println("Body ERROR Response :", string(body))
 		fmt.Println("Payload:", string(b))
 		fmt.Printf("Erro ao enviar a requisição do '%s' , tentativa (%d/%d): %v\n", data.ClientID, retryEnvelope[envelopeToken]+1, 5, err)
@@ -416,7 +422,7 @@ func getMedia(ctx context.Context, evt *events.Message, clientId string) (string
 
 		buf, err = client.Download(ctx, mediaMessage)
 		if err != nil {
-			fmt.Printf("Erro ao baixar a mídia: %v", err)
+			fmt.Printf("Erro ao baixar a imagem: %v", err)
 		}
 		base64Data := base64.StdEncoding.EncodeToString(buf)
 		return base64Data, mimeType
@@ -426,7 +432,7 @@ func getMedia(ctx context.Context, evt *events.Message, clientId string) (string
 		mediaMessage := vidMsg
 		buf, err := client.Download(ctx, mediaMessage)
 		if err != nil {
-			fmt.Printf("Erro ao baixar a mídia: %v", err)
+			fmt.Printf("Erro ao baixar a video: %v", err)
 		}
 		base64Data := base64.StdEncoding.EncodeToString(buf)
 		return base64Data, mimeType
@@ -436,7 +442,7 @@ func getMedia(ctx context.Context, evt *events.Message, clientId string) (string
 		mediaMessage := audioMsg
 		buf, err := client.Download(ctx, mediaMessage)
 		if err != nil {
-			fmt.Printf("Erro ao baixar a mídia: %v", err)
+			fmt.Printf("Erro ao baixar a audio: %v", err)
 		}
 		base64Data := base64.StdEncoding.EncodeToString(buf)
 		return base64Data, mimeType
@@ -446,17 +452,20 @@ func getMedia(ctx context.Context, evt *events.Message, clientId string) (string
 		mediaMessage := stickerMsg
 		buf, err := client.Download(ctx, mediaMessage)
 		if err != nil {
-			fmt.Printf("Erro ao baixar a mídia: %v", err)
+			fmt.Printf("Erro ao baixar a sticker: %v", err)
 		}
 		base64Data := base64.StdEncoding.EncodeToString(buf)
 		return base64Data, mimeType
 	}
 	if docMsg := evt.Message.GetDocumentMessage(); docMsg != nil {
+		fmt.Printf("Media debug: %+v\n", docMsg)
+
 		mimeType = docMsg.GetMimetype()
+		// fmt.Println(mimeType)
 		mediaMessage := docMsg
 		buf, err := client.Download(ctx, mediaMessage)
 		if err != nil {
-			fmt.Printf("Erro ao baixar a mídia: %v", err)
+			fmt.Printf("Erro ao baixar a doc: %v", err)
 		}
 		base64Data := base64.StdEncoding.EncodeToString(buf)
 		return base64Data, mimeType
@@ -886,14 +895,28 @@ func isOnWhatsAppSafe(client *whatsmeow.Client, numbers []string) ([]types.IsOnW
 }
 
 // Verifica se o número está no WhatsApp com tentativas
-func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool) (resp []types.IsOnWhatsAppResponse, err error) {
+func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool, clientId string) (resp []types.IsOnWhatsAppResponse, err error) {
 	maxRetries := 3
 	backoff := 1 * time.Second
+	found, found_number, found_server := modules.FindNumberInCache(number)
+	if found {
+		return []types.IsOnWhatsAppResponse{
+			types.IsOnWhatsAppResponse{
+				Query: "",
+				IsIn:  true,
+				JID:   types.JID{User: found_number, Server: found_server},
+			},
+		}, nil
+	}
+	fmt.Println("Resultado em cache :", found, number)
+
 	for i := 0; i < maxRetries; i++ {
 		responses, err := isOnWhatsAppSafe(client, []string{number})
 		if err == nil && len(responses) > 0 {
 			response := responses[0]
 			if response.IsIn || de_grupo {
+				modules.SaveNumberInCache(number, response.JID.User, response.JID.Server, clientId)
+
 				return responses, nil
 			}
 		}
@@ -909,6 +932,7 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool
 	for i := 0; i < maxRetries; i++ {
 		responses, err := isOnWhatsAppSafe(client, []string{numberWith9})
 		if err == nil && len(responses) > 0 {
+			modules.SaveNumberInCache(number, responses[0].JID.User, responses[0].JID.Server, clientId)
 			return responses, nil
 		}
 		time.Sleep(backoff)
@@ -1001,6 +1025,11 @@ func getClient(clientId string) *whatsmeow.Client {
 func setStatus(client *whatsmeow.Client, status string, JID types.JID) {
 	if status == "conectado" {
 		typePresence := types.PresenceAvailable
+		client.SendPresence(typePresence)
+		return
+	}
+	if status == "desconectado" {
+		typePresence := types.PresenceUnavailable
 		client.SendPresence(typePresence)
 		return
 	}
@@ -1184,7 +1213,88 @@ type singleMessageInfo struct {
 	client      *whatsmeow.Client
 	Attempts    int32
 }
+type Mood struct {
+	Name            string
+	EventsFrequency int     // in minutes
+	OnlineChance    float64 // probability of appearing online
+	OfflineChance   float64 // probability of disconnecting
+	TypingChance    float64 // probability of showing typing...
+	AudioChance     float64 // probability of recording audio
+	ActiveHours     [2]int  // hours of day when activity is higher
+}
 
+var moods = map[string]Mood{
+	"active": {
+		Name:            "Active",
+		OnlineChance:    0.3,
+		OfflineChance:   0.1,
+		TypingChance:    0.3,
+		AudioChance:     0.4, // loves audio
+		ActiveHours:     [2]int{8, 23},
+		EventsFrequency: 16,
+	},
+	"sleepy": {
+		Name:            "Sleepy",
+		OnlineChance:    0.2,
+		OfflineChance:   0.6,
+		TypingChance:    0.1,
+		AudioChance:     0.05,
+		ActiveHours:     [2]int{10, 22},
+		EventsFrequency: 30,
+	},
+	"workaholic": {
+		Name:            "Workaholic",
+		OnlineChance:    0.8,
+		OfflineChance:   0.05,
+		TypingChance:    0.3,
+		AudioChance:     0.1,
+		ActiveHours:     [2]int{9, 18},
+		EventsFrequency: 18,
+	},
+	"casual": {
+		Name:            "Casual",
+		OnlineChance:    0.5,
+		OfflineChance:   0.2,
+		TypingChance:    0.2,
+		AudioChance:     0.1,
+		ActiveHours:     [2]int{9, 23},
+		EventsFrequency: 24,
+	},
+	"shy": {
+		Name:            "Shy",
+		OnlineChance:    0.3,
+		OfflineChance:   0.3,
+		TypingChance:    0.2,
+		AudioChance:     0.01, // almost never records
+		ActiveHours:     [2]int{10, 22},
+		EventsFrequency: 27,
+	},
+}
+
+func simulateEvents(clientId string, mood Mood) {
+	r := rand.Float64()
+	client := getClient(clientId)
+
+	switch {
+	case r < mood.OnlineChance:
+		setStatus(client, "conectado", types.JID{})
+		fmt.Printf("[%s] goes online\n", clientId)
+	case r < mood.OnlineChance+mood.OfflineChance:
+		setStatus(client, "desconectado", types.JID{})
+		fmt.Printf("[%s] goes offline\n", clientId)
+	case r < mood.OnlineChance+mood.OfflineChance+mood.TypingChance:
+		found, found_number, found_server := modules.FindRandomNumberInCache(clientId)
+		fmt.Println("Found:", found, "Number:", found_number, "Server:", found_server)
+		JID := types.JID{User: found_number, Server: found_server}
+		setStatus(client, "digitando", JID)
+		fmt.Printf("[%s] starts typing... but gives up\n", clientId)
+	case r < mood.OnlineChance+mood.OfflineChance+mood.TypingChance+mood.AudioChance:
+		fmt.Printf("[%s] is recording audio\n", clientId)
+	default:
+		// no event this round
+	}
+
+}
 func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 	workers := make(chan struct{}, 20)
 	limiter := rate.NewLimiter(rate.Every(2*time.Second), 1)
@@ -1290,7 +1400,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			if !ok {
 				editedIDMessage = "" // ou outro valor padrão
 			}
-			validNumber, err := checkNumberWithRetry(client, number, id_grupo != "")
+			validNumber, err := checkNumberWithRetry(client, number, id_grupo != "", currentClientID)
 			var JID types.JID = types.JID{}
 			if id_grupo != "" {
 				JID = types.JID{User: strings.Replace(id_grupo, "@g.us", "", -1), Server: types.GroupServer}
@@ -1604,9 +1714,13 @@ func main() {
 	// SOFT CAP 4MB : 3.57MB - 3.58MB - 4.5MB
 	// SOFT CAP 20MB : 4.02MB - 4.29MB - 4.42MB
 	// SOFT CAP 10MB : 3.57MB - 3.59MB - 4.48MB
-	modules.InitMessagesQueue(modules.BasicActions{
-		GetClient: getClient, CheckNumberWithRetry: checkNumberWithRetry,
-	})
+	// simulateEvents("teste_disparo_shark", moods["active"])
+	// found, number := modules.FindNumberInCache("5537984103402", "teste_disparo_shark")
+	// modules.InitMessagesQueue(modules.BasicActions{
+	// 	GetClient: getClient, CheckNumberWithRetry: checkNumberWithRetry,
+	// })
+
+	modules.RemoveExpiredCaches()
 	cleanUploads()
 
 	go autoCleanup()
@@ -1708,7 +1822,7 @@ func main() {
 			})
 		}
 
-		validNumber, err := checkNumberWithRetry(client, numberWithOnlyNumbers, false)
+		validNumber, err := checkNumberWithRetry(client, numberWithOnlyNumbers, false, clientId)
 		if err != nil {
 			fmt.Println("Erro check", err)
 			return c.Status(500).JSON(fiber.Map{
@@ -2336,6 +2450,15 @@ func convertPngToJpeg(pngPath string) (string, error) {
 		return "", err
 	}
 
+	// Prepare output image (RGB)
+	bounds := img.Bounds()
+	outImg := image.NewRGBA(bounds)
+
+	// Fill background with white
+	draw.Draw(outImg, bounds, &image.Uniform{C: color.White}, image.Point{}, draw.Src)
+	// Draw original PNG on top
+	draw.Draw(outImg, bounds, img, bounds.Min, draw.Over)
+
 	outPath := pngPath[:len(pngPath)-len(".png")] + ".jpg"
 	outFile, err := os.Create(outPath)
 	if err != nil {
@@ -2343,9 +2466,8 @@ func convertPngToJpeg(pngPath string) (string, error) {
 	}
 	defer outFile.Close()
 
-	// Encode as JPEG with quality 90 (good balance of size/quality)
 	opt := jpeg.Options{Quality: 90}
-	if err := jpeg.Encode(outFile, img, &opt); err != nil {
+	if err := jpeg.Encode(outFile, outImg, &opt); err != nil {
 		return "", err
 	}
 	os.Remove(pngPath)
@@ -2371,7 +2493,6 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		}
 		chosedFile = newFile
 	}
-	fmt.Println(chosedFile)
 	file, err := os.Open(chosedFile)
 	if err != nil {
 		fmt.Printf("Erro ao abrir o arquivo: %v", err)

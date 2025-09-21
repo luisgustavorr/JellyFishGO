@@ -30,7 +30,7 @@ type SendMessageInfo struct {
 
 type BasicActions struct {
 	GetClient            func(clientId string) *whatsmeow.Client
-	CheckNumberWithRetry func(client *whatsmeow.Client, number string, de_grupo bool) (resp []types.IsOnWhatsAppResponse, err error)
+	CheckNumberWithRetry func(client *whatsmeow.Client, number string, de_grupo bool, clientId string) (resp []types.IsOnWhatsAppResponse, err error)
 }
 type MessageIndividual struct {
 	Text     string `json:"text"`
@@ -177,7 +177,7 @@ func enviarMensagem(uuid string) {
 		msgInfo.Number = sanitizeNumber(msgInfo.Number)
 		client := actions.GetClient(clientId)
 		id_grupo := "" //todo PEGAR O ID DO GRUPO
-		validNumber, err := actions.CheckNumberWithRetry(client, msgInfo.Number, id_grupo != "")
+		validNumber, err := actions.CheckNumberWithRetry(client, msgInfo.Number, id_grupo != "", clientId)
 		var JID types.JID = types.JID{}
 		message := &waE2E.Message{Conversation: &msgInfo.Text}
 		if id_grupo != "" {
