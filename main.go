@@ -900,6 +900,7 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool
 	backoff := 1 * time.Second
 	found, found_number, found_server := modules.FindNumberInCache(number)
 	if found {
+		fmt.Printf("# ✅ -> Número '%s' (asked as : '%s') achado no cache !! \n", found_number, number)
 		return []types.IsOnWhatsAppResponse{
 			types.IsOnWhatsAppResponse{
 				Query: "",
