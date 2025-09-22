@@ -56,6 +56,7 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	_ "golang.org/x/image/webp" // Importa suporte para WebP
+	"golang.org/x/net/proxy"
 	"golang.org/x/time/rate"
 	"google.golang.org/protobuf/proto"
 )
@@ -70,7 +71,6 @@ var _ = godotenv.Load()
 
 var MODO_DESENVOLVIMENTO = os.Getenv("MODO_DESENVOLVIMENTO")
 var desenvolvimento = MODO_DESENVOLVIMENTO == "1"
-
 var groupPicCache sync.Map // Thread-safe
 // Pega foto de perfil do grupo
 func getGroupProfilePicture(client *whatsmeow.Client, groupJID types.JID) *types.ProfilePictureInfo {
@@ -958,8 +958,37 @@ func tryConnecting(clientId string) *whatsmeow.Client {
 		return nil
 	}
 	clientLog := waLog.Stdout("Client", "ERROR", true)
+
 	client := whatsmeow.NewClient(deviceStore, clientLog)
+
+	avaiableProxyServer, found := modules.GetServerByClientId(clientId)
+	if !found {
+		fmt.Printf("[PROXY] -> Não existem servidores disponíveis para o cliente : %s \n", clientId)
+	} else {
+		fmt.Printf("[PROXY] -> '%s' Conectado em '%s' (%d/%d) \n", clientId, avaiableProxyServer.Name, avaiableProxyServer.ActiveConns, avaiableProxyServer.MaxConns)
+		dialer, err := proxy.SOCKS5("tcp", avaiableProxyServer.URL, &proxy.Auth{
+			User:     avaiableProxyServer.User,
+			Password: avaiableProxyServer.Password,
+		}, proxy.Direct)
+		if err != nil {
+			panic(err)
+		}
+		conn, err := dialer.Dial("tcp", "api.ipify.org:443")
+		if err != nil {
+			fmt.Println("[PROXY] -> Proxy failed:", err)
+		} else {
+			fmt.Println("[PROXY] -> Proxy working, conn:", conn.RemoteAddr())
+			conn.Close()
+			client.SetSOCKSProxy(dialer, whatsmeow.SetProxyOptions{
+				NoWebsocket: false,
+				NoMedia:     false,
+			})
+		}
+
+	}
+
 	client.EnableAutoReconnect = true
+
 	client.AddEventHandler(func(evt interface{}) {
 		switch v := evt.(type) {
 		case *events.Connected:
@@ -1272,30 +1301,103 @@ var moods = map[string]Mood{
 	},
 }
 
-func simulateEvents(clientId string, mood Mood) {
-	r := rand.Float64()
-	client := getClient(clientId)
+var clientLimiters sync.Map // clientId -> *rate.Limiter
+var lastAction sync.Map     // clientId -> time.Time
+var rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	switch {
-	case r < mood.OnlineChance:
-		setStatus(client, "conectado", types.JID{})
-		fmt.Printf("[%s] goes online\n", clientId)
-	case r < mood.OnlineChance+mood.OfflineChance:
-		setStatus(client, "desconectado", types.JID{})
-		fmt.Printf("[%s] goes offline\n", clientId)
-	case r < mood.OnlineChance+mood.OfflineChance+mood.TypingChance:
-		found, found_number, found_server := modules.FindRandomNumberInCache(clientId)
-		fmt.Println("Found:", found, "Number:", found_number, "Server:", found_server)
-		JID := types.JID{User: found_number, Server: found_server}
-		setStatus(client, "digitando", JID)
-		fmt.Printf("[%s] starts typing... but gives up\n", clientId)
-	case r < mood.OnlineChance+mood.OfflineChance+mood.TypingChance+mood.AudioChance:
-		fmt.Printf("[%s] is recording audio\n", clientId)
-	default:
-		// no event this round
+func getClientLimiter(clientId string) *rate.Limiter {
+	if v, ok := clientLimiters.Load(clientId); ok {
+		return v.(*rate.Limiter)
+	}
+	l := rate.NewLimiter(rate.Every(30*time.Second), 1) // 1 action per ~30s by default
+	clientLimiters.Store(clientId, l)
+	return l
+}
+
+func randomBetweenf(min, max float64) float64 {
+	return min + rng.Float64()*(max-min)
+}
+
+func humanTypingDuration(text string) time.Duration {
+	// realistic: 200 chars/min => 0.3s/char; add pauses and jitter
+	chars := float64(len(text))
+	baseSeconds := chars * 0.3
+	jitter := randomBetweenf(-0.25, 0.4) // -25% .. +40%
+	dur := baseSeconds * (1 + jitter)
+	if dur < 1.0 {
+		dur = 1.0
+	}
+	// clamp to reasonable max
+	if dur > 60 {
+		dur = 60
+	}
+	return time.Duration(dur) * time.Second
+}
+
+func simulateEvents(clientId string, mood Mood) {
+	limiter := getClientLimiter(clientId)
+	if !limiter.Allow() {
+		return
 	}
 
+	if last, ok := lastAction.Load(clientId); ok {
+		if t, _ := last.(time.Time); time.Since(t) < time.Duration(mood.EventsFrequency)*time.Minute/2 {
+			return
+		}
+	}
+
+	client := getClient(clientId)
+	if client == nil {
+		return
+	}
+
+	r := rng.Float64()
+	pOnline := mood.OnlineChance
+	pOffline := mood.OfflineChance
+	pTyping := mood.TypingChance
+	// pAudio := mood.AudioChance
+
+	pOnline *= 1 + randomBetweenf(-0.15, 0.15)
+	pTyping *= 1 + randomBetweenf(-0.15, 0.15)
+
+	switch {
+	case r < pOnline:
+		setStatus(client, "conectado", types.JID{})
+		fmt.Printf("[%s] -> online (mood %s)\n", clientId, mood.Name)
+	case r < pOnline+pOffline:
+		setStatus(client, "desconectado", types.JID{})
+		fmt.Printf("[%s] -> offline (mood %s)\n", clientId, mood.Name)
+	case r < pOnline+pOffline+pTyping:
+		found, number, server := modules.FindRandomNumberInCache(clientId)
+		if !found {
+			return
+		}
+		JID := types.JID{User: number, Server: server}
+		setStatus(client, "digitando", JID)
+		dummyText := "Bom dia, tudo bem ?"
+		duration := humanTypingDuration(dummyText)
+		time.Sleep(duration)
+		setStatus(client, "conectado", types.JID{})
+		fmt.Printf("[%s] -> typing for %v (to %s)\n", clientId, duration, number)
+	// case r < pOnline+pOffline+pTyping+pAudio:
+	// 	// prefer NOT to fake audio recording unless you actually send audio sometimes.
+	// 	// instead, emulate 'holding mic' with a short typing-like event
+	// 	found, number, server := modules.FindRandomNumberInCache(clientId)
+	// 	if !found {
+	// 		return
+	// 	}
+	// 	JID := types.JID{User: number, Server: server}
+	// 	setStatus(client, "gravando", JID)
+	// 	time.Sleep(time.Duration(2+rng.Intn(6)) * time.Second) // 2-8s
+	// 	setStatus(client, "conectado", types.JID{})
+	// 	fmt.Printf("[%s] -> recorded-sim (short) to %s\n", clientId, number)
+	default:
+		// nothing — leave it alone
+	}
+
+	lastAction.Store(clientId, time.Now())
 }
+
 func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 	workers := make(chan struct{}, 20)
 	limiter := rate.NewLimiter(rate.Every(2*time.Second), 1)
@@ -2070,6 +2172,31 @@ func main() {
 				"pairCOde": code,
 			})
 		}
+		avaiableProxyServer, found := modules.GetServerByClientId(clientId)
+		if !found {
+			fmt.Printf("[PROXY] -> Não existem servidores disponíveis para o cliente : %s \n", clientId)
+		} else {
+			fmt.Printf("[PROXY] -> '%s' Conectado em '%s' (%d/%d) \n", clientId, avaiableProxyServer.Name, avaiableProxyServer.ActiveConns, avaiableProxyServer.MaxConns)
+			dialer, err := proxy.SOCKS5("tcp", avaiableProxyServer.URL, &proxy.Auth{
+				User:     avaiableProxyServer.User,
+				Password: avaiableProxyServer.Password,
+			}, proxy.Direct)
+			if err != nil {
+				panic(err)
+			}
+			conn, err := dialer.Dial("tcp", "api.ipify.org:443")
+			if err != nil {
+				fmt.Println("[PROXY] -> Proxy failed:", err)
+			} else {
+				fmt.Println("[PROXY] -> Proxy working, conn:", conn.RemoteAddr())
+				conn.Close()
+				client.SetSOCKSProxy(dialer, whatsmeow.SetProxyOptions{
+					NoWebsocket: false,
+					NoMedia:     false,
+				})
+			}
+
+		}
 		client.AddEventHandler(func(evt interface{}) {
 			switch v := evt.(type) {
 			case *events.Connected:
@@ -2319,10 +2446,12 @@ func desconctarCliente(clientId string) bool {
 	sufixo := clientId[lastIndex+1:]
 	baseURL := mapOficial[sufixo]
 	sendToEndPoint(data, baseURL)
+	defer modules.RemoveProxyToClientId(clientId)
 	if client == nil {
 		// Reconecta sob demanda
 		client = tryConnecting(clientId)
 		if client == nil {
+
 			fmt.Println("cliente não disponível")
 			return false
 		}
@@ -2332,6 +2461,7 @@ func desconctarCliente(clientId string) bool {
 		defer clientsMutex.Unlock()
 		client.Logout(ctx)
 	}
+
 	return true
 }
 func convertWebPToJPEG(inputPath, outputPath string) error {
