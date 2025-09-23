@@ -458,21 +458,22 @@ func getMedia(ctx context.Context, evt *events.Message, clientId string) (string
 		return base64Data, mimeType
 	}
 	if docMsg := evt.Message.GetDocumentMessage(); docMsg != nil {
-
 		mimeType = docMsg.GetMimetype()
-		if strings.Contains(*docMsg.Title, ".cdr") {
+
+		if docMsg.FileName != nil && strings.Contains(*docMsg.FileName, ".cdr") {
 			mimeType = "application/vnd.corel-draw"
 			docMsg.Mimetype = &mimeType
 		}
-		fmt.Printf("Media debug: %+v\n", docMsg)
 
-		mediaMessage := docMsg
-		buf, err := client.Download(ctx, mediaMessage)
+		if docMsg.FileName != nil {
+			fmt.Printf("Document title: %s\n", *docMsg.FileName)
+		}
+
+		buf, err := client.Download(ctx, docMsg)
 		if err != nil {
 			fmt.Printf("Erro ao baixar a doc: %v", err)
 		}
 		base64Data := base64.StdEncoding.EncodeToString(buf)
-		fmt.Println(buf[0:20])
 		return base64Data, mimeType
 	} else {
 		return "", ""

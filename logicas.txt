@@ -1,0 +1,18 @@
+ter 23 set 2025 09:59:01 -03: Incoming: 0.665 GB, Outgoing: 0.521 GB
+ter 23 set 2025 10:59:01 -03: Incoming: 0.665 GB, Outgoing: 0.521 GB 1°
+ter 23 set 2025 11:59:01 -03: Incoming: 0.676 GB, Outgoing: 0.532 GB 2°
+ter 23 set 2025 12:59:01 -03: Incoming: 0.680 GB, Outgoing: 0.536 GB 3°
+ter 23 set 2025 13:59:01 -03: Incoming: 0.681 GB, Outgoing: 0.537 GB 4°
+ter 23 set 2025 14:59:01 -03: Incoming: 0.683 GB, Outgoing: 0.539 GB 5°
+
+1° - I: 0 MB | O:0 MB
+2° - I: 11 MB | O: 11 MB
+3° - I: 4 MB | O: 4 MB
+4° - I: 1 MB | O: 1 MB
+5° - I: 2 MB | O: 2 MB
+
+Média /hr -> I : 18/5 | O : 18/5 -> ~ 7.2MB/hr p/ conexão tranquila
+Dia : 7.2 * 24 =  172.8
+Mês : 172.8 * 30  = 5184 MB | 5GB
+
+
