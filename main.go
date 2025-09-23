@@ -2612,6 +2612,12 @@ func convertPngToJpeg(pngPath string) (string, error) {
 }
 func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile string, client *whatsmeow.Client, clientId string, msg singleMessageInfo, UUID string) (*waE2E.Message, string) {
 	// Abrindo o arquivo
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("🔥 panic in prepararMensagemArquivo: %v", r)
+			debug.PrintStack()
+		}
+	}()
 	if filepath.Ext(chosedFile) == ".mp3" || filepath.Ext(chosedFile) == ".ogg" {
 
 		var err error
@@ -2655,7 +2661,11 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 	}
 	nomeArquivo := filepath.Base(chosedFile)
 	nomeArquivo = strings.ReplaceAll(nomeArquivo, clientId, "")
-	kind, err := filetype.Match(buf[:512])
+	limit := 512
+	if len(buf) < limit {
+		limit = len(buf)
+	}
+	kind, err := filetype.Match(buf[:limit])
 	if err != nil {
 		fmt.Printf("Erro ao detectar tipo do arquivo: %v", err)
 		return nil, ""
@@ -2680,7 +2690,12 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		mimeType = kind.MIME.Value // fallback
 	}
 	fmt.Println("📁 O arquivo é um :", mimeType, " com final ", filepath.Ext(nomeArquivo))
-	mensagem_ := proto.Clone(message).(*waE2E.Message)
+	var mensagem_ *waE2E.Message
+	if message != nil {
+		mensagem_ = proto.Clone(message).(*waE2E.Message)
+	} else {
+		mensagem_ = &waE2E.Message{}
+	}
 	mensagem_.ExtendedTextMessage = nil
 	semExtensao := strings.TrimSuffix(nomeArquivo, filepath.Ext(nomeArquivo))
 	if filetype.IsAudio(buf) || filepath.Ext(nomeArquivo) == ".mp3" {
