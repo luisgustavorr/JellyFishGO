@@ -254,7 +254,7 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "jelly_fish_con_|7@625^4|7")
+	req.Header.Set("Authorization", os.Getenv("STRING_AUTH"))
 	req.Header.Set("X-CSRFToken", getCSRFToken())
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -352,7 +352,7 @@ func sendToEndPoint(data GenericPayload, url string) {
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "jelly_fish_con_|7@625^4|7")
+	req.Header.Set("Authorization", os.Getenv("STRING_AUTH"))
 	req.Header.Set("X-CSRFToken", getCSRFToken())
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -458,16 +458,21 @@ func getMedia(ctx context.Context, evt *events.Message, clientId string) (string
 		return base64Data, mimeType
 	}
 	if docMsg := evt.Message.GetDocumentMessage(); docMsg != nil {
-		fmt.Printf("Media debug: %+v\n", docMsg)
 
 		mimeType = docMsg.GetMimetype()
-		// fmt.Println(mimeType)
+		if strings.Contains(*docMsg.Title, ".cdr") {
+			mimeType = "application/vnd.corel-draw"
+			docMsg.Mimetype = &mimeType
+		}
+		fmt.Printf("Media debug: %+v\n", docMsg)
+
 		mediaMessage := docMsg
 		buf, err := client.Download(ctx, mediaMessage)
 		if err != nil {
 			fmt.Printf("Erro ao baixar a doc: %v", err)
 		}
 		base64Data := base64.StdEncoding.EncodeToString(buf)
+		fmt.Println(buf[0:20])
 		return base64Data, mimeType
 	} else {
 		return "", ""
