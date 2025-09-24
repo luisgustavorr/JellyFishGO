@@ -1426,7 +1426,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 
 	documento_padrao_CAMINHO_INICIAL := ""
 	if sendInfoMain.documento_padrao != nil {
-		documento_padrao_CAMINHO_INICIAL = "./uploads/" + sendInfoMain.ClientIdLocal + sendInfoMain.documento_padrao.Filename
+		documento_padrao_CAMINHO_INICIAL = "./uploads/" + sendInfoMain.UUID + sendInfoMain.documento_padrao.Filename
 	}
 	manyResults := len(sendInfoMain.Result)
 	for i := range sendInfoMain.Result {
@@ -1591,7 +1591,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 						if documento_padrao != nil {
 							uniqueFileText = ""
 						}
-						tempMessage, _ := prepararMensagemArquivo(uniqueFileText, message, "./uploads/"+currentClientID+fileName, client, currentClientID, msg, sendInfo.UUID)
+						tempMessage, _ := prepararMensagemArquivo(uniqueFileText, message, "./uploads/"+sendInfo.UUID+fileName, client, currentClientID, msg, sendInfo.UUID)
 						if documento_padrao != nil {
 							msg.messageInfo = tempMessage
 							processarMensagem(msg, sendInfo.UUID)
@@ -2004,6 +2004,7 @@ func main() {
 	})
 	r.Post("/sendFiles", func(c *fiber.Ctx) error {
 		clientId := utils.CopyString(c.FormValue("clientId"))
+		UUID := clientId + uuid.New().String()
 		fmt.Printf("------------------ %s Send Files Request ------------------------ \n\n", clientId)
 		client := getClient(clientId)
 		if client == nil {
@@ -2041,7 +2042,7 @@ func main() {
 			fmt.Println("📁 ❌-> Nenhum documento padrão enviado.", err)
 		}
 		if documento_padrao != nil {
-			savePath := "./uploads/" + clientId + documento_padrao.Filename
+			savePath := "./uploads/" + UUID + documento_padrao.Filename
 			if dataProgramada != "" {
 				savePath = normalizeFileName("./arquivos_disparos_programados/padrao_" + dataProgramada + clientId + documento_padrao.Filename)
 				// documento_padrao_filePath = savePath
@@ -2115,7 +2116,7 @@ func main() {
 			SendContact:      sendContact,
 			NoTimeout:        noTimeout,
 			DataProgramada:   dataProgramada,
-			InfoObjects:      infoObjects, Counter: 0, UUID: clientId + uuid.New().String()})
+			InfoObjects:      infoObjects, Counter: 0, UUID: UUID})
 		// go modules.AddMensagemPendente(modules.SendMessageInfo{ClientIdLocal: clientId,
 		// 	Result: resultStructed,
 		// 	// Documento_padrao: documento_padrao,
@@ -2625,6 +2626,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		chosedFile, err = converterParaOgg(chosedFile)
 		if err != nil {
 			log.Println("Falha ao converter:", err)
+			return message, chosedFile
 		}
 
 	}
@@ -2633,12 +2635,16 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		newFile, err := convertPngToJpeg(chosedFile)
 		if err != nil {
 			log.Println("Failed to convert PNG to JPEG:", err)
+			return message, chosedFile
+
 		}
 		chosedFile = newFile
 	}
 	file, err := os.Open(chosedFile)
 	if err != nil {
 		fmt.Printf("Erro ao abrir o arquivo: %v", err)
+		return message, chosedFile
+
 	}
 	defer file.Close()
 	// Detectando o tipo MIME
@@ -2648,7 +2654,11 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		*bufPtr = buf[:0]
 		bufferPool.Put(bufPtr)
 	}()
-	fileInfo, _ := file.Stat()
+	fileInfo, err := file.Stat()
+	if err != nil {
+		log.Printf("failed to stat file %s: %v", chosedFile, err)
+		return message, chosedFile
+	}
 	fileSize := fileInfo.Size()
 	if cap(buf) < int(fileSize) {
 		buf = make([]byte, fileSize)
@@ -2659,6 +2669,8 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 	_, err = io.ReadFull(file, buf)
 	if err != nil {
 		fmt.Printf("Erro ao ler o arquivo: %v", err)
+		return message, chosedFile
+
 	}
 	nomeArquivo := filepath.Base(chosedFile)
 	nomeArquivo = strings.ReplaceAll(nomeArquivo, clientId, "")

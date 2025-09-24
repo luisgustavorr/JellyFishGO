@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 )
 
 var mysqlConnection *sql.DB
@@ -20,15 +21,31 @@ type ProxysServers struct {
 }
 
 func connectMysql() *sql.DB {
-	mysqlConnection, err := sql.Open("mysql", os.Getenv("STRING_CONN"))
+	db, err := sql.Open("mysql", os.Getenv("STRING_CONN"))
 	if err != nil {
-		log.Println(err)
+		log.Fatal("failed to open MySQL:", err)
 	}
-	return mysqlConnection
+
+	// Configure pooling
+	db.SetMaxOpenConns(20)           // max open connections
+	db.SetMaxIdleConns(10)           // max idle connections
+	db.SetConnMaxLifetime(time.Hour) // recycle after 1h
+	db.SetConnMaxIdleTime(10 * time.Minute)
+
+	// Test connection
+	if err := db.Ping(); err != nil {
+		log.Fatal("failed to connect to MySQL:", err)
+	}
+
+	return db
 }
 func GetAvaiableServer(clientId string) (serverFound ProxysServers, found bool) {
 
 	if mysqlConnection == nil {
+		mysqlConnection = connectMysql()
+	}
+	if err := mysqlConnection.Ping(); err != nil {
+		log.Println("MySQL ping failed, reconnecting:", err)
 		mysqlConnection = connectMysql()
 	}
 	rows, err := mysqlConnection.Query("SELECT * FROM proxy_servers WHERE max_conns > active_conns ORDER BY active_conns ASC LIMIT 1")
@@ -55,6 +72,10 @@ func updateActiveConns() {
 	if mysqlConnection == nil {
 		mysqlConnection = connectMysql()
 	}
+	if err := mysqlConnection.Ping(); err != nil {
+		log.Println("MySQL ping failed, reconnecting:", err)
+		mysqlConnection = connectMysql()
+	}
 	_, err := mysqlConnection.Exec(`UPDATE proxy_servers ps
 SET ps.active_conns = (
     SELECT COUNT(cp.id)
@@ -75,6 +96,10 @@ func addProxyToClientId(clientId string, proxyId int) bool {
 	if mysqlConnection == nil {
 		mysqlConnection = connectMysql()
 	}
+	if err := mysqlConnection.Ping(); err != nil {
+		log.Println("MySQL ping failed, reconnecting:", err)
+		mysqlConnection = connectMysql()
+	}
 	_, err := mysqlConnection.Exec(`INSERT INTO spacemid_sistem_adm.clients_in_proxy (proxy_id,client_id) VALUES (?,?);`, proxyId, clientId)
 	if err != nil {
 		log.Println(err)
@@ -84,6 +109,10 @@ func addProxyToClientId(clientId string, proxyId int) bool {
 }
 func RemoveProxyToClientId(clientId string) bool {
 	if mysqlConnection == nil {
+		mysqlConnection = connectMysql()
+	}
+	if err := mysqlConnection.Ping(); err != nil {
+		log.Println("MySQL ping failed, reconnecting:", err)
 		mysqlConnection = connectMysql()
 	}
 	_, err := mysqlConnection.Exec(`DELETE FROM spacemid_sistem_adm.clients_in_proxy WHERE client_id = ? `, clientId)
@@ -96,6 +125,10 @@ func RemoveProxyToClientId(clientId string) bool {
 }
 func GetServerByClientId(clientId string) (serverFound ProxysServers, found bool) {
 	if mysqlConnection == nil {
+		mysqlConnection = connectMysql()
+	}
+	if err := mysqlConnection.Ping(); err != nil {
+		log.Println("MySQL ping failed, reconnecting:", err)
 		mysqlConnection = connectMysql()
 	}
 	rows, err := mysqlConnection.Query("SELECT ps.* FROM proxy_servers ps LEFT JOIN clients_in_proxy cp ON cp.proxy_id = ps.id WHERE cp.client_id = ? LIMIT 1", clientId)
