@@ -1736,8 +1736,8 @@ func enviarMensagem(msg singleMessageInfo, uuid string) error {
 	focus := msg.focus
 	idMensagem := msg.idMensagem
 	number := msg.number
-	inJSONMessageInfo, _ := json.MarshalIndent(msg.messageInfo, "", "  ")
-	fmt.Println("ID Disparo :", uuid, " | JID ENVIADO ", JID, string(inJSONMessageInfo))
+	// inJSONMessageInfo, _ := json.MarshalIndent(msg.messageInfo, "", "  ")
+	// fmt.Println("ID Disparo :", uuid, " | JID ENVIADO ", JID, string(inJSONMessageInfo))
 
 	retornoEnvio, err := client.SendMessage(context, JID, msg.messageInfo)
 	// fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", JID, clientId, text, number)
