@@ -1490,8 +1490,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 				number:      number,
 				idMensagem:  idMensagem,
 			}
-			currentClientID = msg.clientId
-			client = msg.client
+
 			text = msg.text
 			number = msg.number
 			var idImage string
@@ -1594,6 +1593,8 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 						tempMessage, _ := prepararMensagemArquivo(uniqueFileText, message, "./uploads/"+sendInfo.UUID+fileName, client, currentClientID, msg, sendInfo.UUID)
 						if documento_padrao != nil {
 							msg.messageInfo = tempMessage
+							currentClientID = msg.clientId
+							client = msg.client
 							processarMensagem(msg, sendInfo.UUID)
 						} else {
 							message = tempMessage
@@ -1647,6 +1648,8 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			if paymentMessage != nil {
 			}
 			msg.messageInfo = message
+			currentClientID = msg.clientId
+			client = msg.client
 			processarMensagem(msg, sendInfo.UUID)
 			if currentCount >= int32(len(sendInfo.Result)) {
 				fmt.Println("Finalizado")
@@ -1730,6 +1733,10 @@ func enviarMensagem(msg singleMessageInfo, uuid string) error {
 	fmt.Println("Enviando mensagem")
 	clientId := msg.clientId
 	client := msg.client
+	clientById := getClient(clientId)
+	if clientById != nil && clientById != client {
+		client = clientById
+	}
 	JID := msg.JID
 	context := msg.context
 	text := msg.text
