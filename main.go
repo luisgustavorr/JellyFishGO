@@ -791,7 +791,12 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 				for _, contactMessage := range contactMessageArray.Contacts {
 
 					var MessageID []types.MessageID = []types.MessageID{id_message}
-					client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
+					go func(MessageID []types.MessageID) {
+						tempoParaVer := randomBetweenf(3, 15)
+						fmt.Println("Esperando tempo para visualizar !! ", tempoParaVer, " segundos")
+						time.Sleep(time.Duration(tempoParaVer) * time.Second)
+						client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
+					}(MessageID)
 					var name string = *contactMessage.DisplayName
 					var vcard string = *contactMessage.Vcard
 					startIndex := strings.Index(vcard, "waid=")
@@ -836,7 +841,12 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 					return false
 				}
 				var MessageID []types.MessageID = []types.MessageID{id_message}
-				client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
+				go func(MessageID []types.MessageID) {
+					tempoParaVer := randomBetweenf(3, 15)
+					fmt.Println("Esperando tempo para visualizar !! ", tempoParaVer, " segundos")
+					time.Sleep(time.Duration(tempoParaVer) * time.Second)
+					client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
+				}(MessageID)
 				messagesQueue.AddMessage(clientId, objetoMensagens, senderNumber)
 				fmt.Printf("------------------ %s Receiving Message Event | By Group : %v | Is Media : %v ------------------------ \n\n", clientId, groupMessage, media != "")
 				fmt.Println("📩 -> Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text, " | By Group:", groupMessage, "| Is Media :", media != "")
@@ -1457,6 +1467,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			if !ok {
 				idMensagem = "" // ou outro valor padrão
 			}
+			fmt.Println("ID da mensagem : ", idMensagem)
 			re := regexp.MustCompile("[0-9]+")
 			numberWithOnlyNumbers := strings.Join(re.FindAllString(item["number"].(string), -1), "")
 			if len(numberWithOnlyNumbers) > 2 && id_grupo == "" {
@@ -1759,6 +1770,7 @@ func enviarMensagem(msg singleMessageInfo, uuid string) error {
 		}
 		adicionarFocusedMessage(focus + "_" + retornoEnvio.ID)
 	}
+	fmt.Println("Id da mensagem q recebi : ", idMensagem)
 	if idMensagem != "" {
 		data := GenericPayload{
 			Evento:   "MENSAGEM_ENVIADA",
