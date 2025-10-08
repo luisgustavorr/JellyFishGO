@@ -65,12 +65,9 @@ var (
 	clientMap    = make(map[string]*whatsmeow.Client)
 	clientsMutex sync.RWMutex // Mutex simples
 )
-var mapOficial = loadConfigInicial(os.Getenv("STRING_CONN"))
 var focusedMessagesKeys = []string{}
 var _ = godotenv.Load()
 
-var MODO_DESENVOLVIMENTO = os.Getenv("MODO_DESENVOLVIMENTO")
-var desenvolvimento = MODO_DESENVOLVIMENTO == "1"
 var groupPicCache sync.Map // Thread-safe
 // Pega foto de perfil do grupo
 func getGroupProfilePicture(client *whatsmeow.Client, groupJID types.JID) *types.ProfilePictureInfo {
@@ -79,7 +76,7 @@ func getGroupProfilePicture(client *whatsmeow.Client, groupJID types.JID) *types
 	}
 	pictureInfo, err := client.GetProfilePictureInfo(groupJID, nil)
 	if err != nil {
-		fmt.Printf("Erro ao obter foto do grupo: %v", err)
+		fmt.Printf("Erro ao obter foto do grupo: %v \n", err)
 		return nil
 	}
 	groupPicCache.Store(groupJID, pictureInfo)
@@ -140,7 +137,7 @@ func (c *MessagesQueue) AddMessage(clientID string, message Envelope, number str
 		fmt.Printf("⏳ -> ENVIANDO %d MENSAGENS ANTES DO TIMER DO CLIENTE %s \n", messageCount, clientID)
 		return
 	}
-	timerBetweenMessage := -0.15*float64(messageCount)*float64(messageCount) + 0.5*float64(messageCount) + 7
+	timerBetweenMessage := -0.15*float64(messageCount)*float64(messageCount) + 0.5*float64(messageCount) + 15
 	if timerBetweenMessage < 0 {
 		timerBetweenMessage = 0.001
 	}
@@ -166,9 +163,9 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 	fmt.Printf("📦 -> ENVIANDO LOTES DE %d MENSAGENS DO %s\n", len(messages), clientID)
 	lastIndex := strings.LastIndex(clientID, "_")
 	sufixo := clientID[lastIndex+1:]
-	baseURL := strings.Split(mapOficial[sufixo], "chatbot")[0]
+	baseURL := strings.Split(modules.MapOficial[sufixo], "chatbot")[0]
 	if strings.Contains(baseURL, "disparo") {
-		baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
+		baseURL = strings.Split(modules.MapOficial[sufixo], "disparo")[0]
 	}
 	data := EnvelopePayload{
 		Evento:   "MENSAGEM_RECEBIDA",
@@ -187,52 +184,8 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 }
 
 // Carregar configuração inicial
-func loadConfigInicial(dsn string) map[string]string {
-	// Conectar ao banco de dados
-	db, err := sql.Open("mysql", dsn)
-	if err != nil {
-		log.Println(err)
-	}
-	defer db.Close()
-
-	if err := db.Ping(); err != nil {
-		log.Println(err)
-	}
-	rows, err := db.Query("SELECT sufixo, link_oficial,base_link_teste,link_teste FROM clientes")
-	if err != nil {
-		log.Println(err)
-	}
-	defer rows.Close()
-	mapProducao := map[string]string{}
-	mapDesenvolvimento := map[string]string{}
-	for rows.Next() {
-		var sufixo string
-		var link_oficial string
-		var base_link_teste string
-		var link_teste string
-		if err := rows.Scan(&sufixo, &link_oficial, &base_link_teste, &link_teste); err != nil {
-			log.Println(err)
-		}
-		mapProducao[sufixo] = link_oficial
-		mapDesenvolvimento[sufixo] = base_link_teste + link_teste
-	}
-	if err != nil {
-		log.Fatal("Erro ao carregar o arquivo .env")
-	}
-	fmt.Println("MODO DESENVOLVIMENTO", desenvolvimento)
-	if desenvolvimento {
-		return mapDesenvolvimento
-	}
-	return mapProducao
-}
 
 // Pegar Token CSRFT
-func getCSRFToken() string {
-	// Gera um token CSRF aleatório
-	rand.Seed(time.Now().UnixNano())
-	randomToken := fmt.Sprintf("%x", rand.Int63())
-	return randomToken
-}
 
 // Enviar envelope de mensagens para o end point
 var retryEnvelope = map[string]int{}
@@ -255,7 +208,7 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", os.Getenv("STRING_AUTH"))
-	req.Header.Set("X-CSRFToken", getCSRFToken())
+	req.Header.Set("X-CSRFToken", modules.GetCSRFToken())
 	client := &http.Client{}
 	resp, err := client.Do(req)
 
@@ -298,6 +251,23 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 		return
 	}
 	defer resp.Body.Close()
+	go func(data EnvelopePayload) {
+		tempoParaVer := randomBetweenf(3, 15)
+		fmt.Println("Esperando tempo para visualizar !! ", tempoParaVer, " segundos")
+		whatsClient := getClient(data.ClientID)
+		time.Sleep(time.Duration(tempoParaVer) * time.Second)
+		validNumber, err := checkNumberWithRetry(whatsClient, data.Data[0].Mensagem.Number, data.Data[0].Mensagem.IDGrupo != "", data.ClientID)
+		if err != nil {
+			fmt.Println("RRO NO GET CLIENTE", err)
+		} else {
+			JID := validNumber[0].JID
+			for _, messageToSee := range data.Data {
+				var MessageID []types.MessageID = []types.MessageID{messageToSee.Mensagem.ID}
+				whatsClient.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
+			}
+		}
+	}(data)
+
 	fmt.Println("🌐 -> Resposta Status: [", resp.Status, "] | evento : ", data.Evento, " | clientId :", data.ClientID)
 	if resp.StatusCode != 200 {
 		envelopeToken := retryToken
@@ -335,35 +305,6 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 }
 
 // Enviar payload genérica
-func sendToEndPoint(data GenericPayload, url string) {
-	jsonData, err := json.MarshalWithOption(data, json.DisableHTMLEscape())
-	if err != nil {
-		fmt.Printf("Erro ao criar marshal: %v", err)
-		return
-	}
-	// fmt.Println("Data sendo envidada :", string(jsonData))
-	if url == "" {
-		fmt.Printf("URL %s vazia", url)
-		return
-	}
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		fmt.Printf("Erro ao criar a requisição: %v", err)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", os.Getenv("STRING_AUTH"))
-	req.Header.Set("X-CSRFToken", getCSRFToken())
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Printf("Erro ao enviar a requisição: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-	fmt.Println(url)
-	fmt.Println("🌐 -> Resposta Status: [", resp.Status, "] | evento : ", data.Evento, " | clientId :", data.ClientID)
-}
 
 // Recupera texto da mensagem recebida
 func getText(message *waE2E.Message) string {
@@ -521,12 +462,6 @@ func removeString(slice []string, value string) []string {
 	return filtered
 }
 
-type GenericPayload struct {
-	Evento   string      `json:"evento,omitempty"`
-	ClientID string      `json:"clientId,omitempty"`
-	Data     interface{} `json:"data,omitempty"`
-	Sender   int         `json:"sender,omitempty"`
-}
 type EnvelopePayload struct {
 	Data     []Envelope `json:"data,omitempty"`
 	Evento   string     `json:"evento,omitempty"`
@@ -655,7 +590,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	}
 	var id_message string = fullInfoMessage.Info.ID
 	var editedInfo = message.GetProtocolMessage().GetKey().GetID()
-	timestamp := fullInfoMessage.Info.Timestamp.Add(-3 * time.Hour).Unix()
+	timestamp := fullInfoMessage.Info.Timestamp.Unix()
 	var quotedMessageID string = contextInfo.GetStanzaID()
 	media, fileType := getMedia(ctx, fullInfoMessage, clientId)
 	edited := 0
@@ -762,6 +697,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	}
 	if profilePic != nil {
 		mensagem.PerfilImg = profilePic.URL
+		fmt.Println("PERFIL IMAGE :", mensagem.PerfilImg)
 	}
 	objetoMensagens := Envelope{Mensagem: mensagem}
 	if fromMe {
@@ -777,9 +713,9 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			}
 			lastIndex := strings.LastIndex(clientId, "_")
 			sufixo := clientId[lastIndex+1:]
-			baseURL := strings.Split(mapOficial[sufixo], "chatbot")[0]
+			baseURL := strings.Split(modules.MapOficial[sufixo], "chatbot")[0]
 			if strings.Contains(baseURL, "disparo") {
-				baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
+				baseURL = strings.Split(modules.MapOficial[sufixo], "disparo")[0]
 			}
 
 			sendEnvelopeToEndPoint(data, baseURL+"chatbot/chat/mensagens/novas-mensagens/", "")
@@ -790,13 +726,6 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			if contactMessageArray != nil {
 				for _, contactMessage := range contactMessageArray.Contacts {
 
-					var MessageID []types.MessageID = []types.MessageID{id_message}
-					go func(MessageID []types.MessageID) {
-						tempoParaVer := randomBetweenf(3, 15)
-						fmt.Println("Esperando tempo para visualizar !! ", tempoParaVer, " segundos")
-						time.Sleep(time.Duration(tempoParaVer) * time.Second)
-						client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
-					}(MessageID)
 					var name string = *contactMessage.DisplayName
 					var vcard string = *contactMessage.Vcard
 					startIndex := strings.Index(vcard, "waid=")
@@ -840,13 +769,13 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 					fmt.Println("!--------------------->MENSAGEM COM ID JÁ ENVIADO<---------------------!")
 					return false
 				}
-				var MessageID []types.MessageID = []types.MessageID{id_message}
-				go func(MessageID []types.MessageID) {
-					tempoParaVer := randomBetweenf(3, 15)
-					fmt.Println("Esperando tempo para visualizar !! ", tempoParaVer, " segundos")
-					time.Sleep(time.Duration(tempoParaVer) * time.Second)
-					client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
-				}(MessageID)
+				// var MessageID []types.MessageID = []types.MessageID{id_message}
+				// go func(MessageID []types.MessageID) {
+				// 	tempoParaVer := randomBetweenf(3, 15)
+				// 	fmt.Println("Esperando tempo para visualizar !! ", tempoParaVer, " segundos")
+				// 	time.Sleep(time.Duration(tempoParaVer) * time.Second)
+				// 	client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
+				// }(MessageID)
 				messagesQueue.AddMessage(clientId, objetoMensagens, senderNumber)
 				fmt.Printf("------------------ %s Receiving Message Event | By Group : %v | Is Media : %v ------------------------ \n\n", clientId, groupMessage, media != "")
 				fmt.Println("📩 -> Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text, " | By Group:", groupMessage, "| Is Media :", media != "")
@@ -1014,7 +943,7 @@ func tryConnecting(clientId string) *whatsmeow.Client {
 			fmt.Println("🎉 -> CLIENTE CONECTADO", clientId)
 			UpdateMemoryLimit(len(clientMap))
 			if strings.Contains(clientId, "chat") {
-				setStatus(client, "conectado", types.JID{})
+				modules.SetStatus(client, "conectado", types.JID{})
 			}
 		case *events.Receipt:
 			if strings.Contains(clientId, "chat") {
@@ -1061,32 +990,17 @@ func removeClientDB(clientId string, container *sqlstore.Container) {
 // Recupera client pelo clientId
 func getClient(clientId string) *whatsmeow.Client {
 	clientsMutex.Lock()
-	defer clientsMutex.Unlock()
+
+	defer func() {
+
+		clientsMutex.Unlock()
+	}()
+
 	if clientMap[clientId] == nil || !clientMap[clientId].IsConnected() || !clientMap[clientId].IsLoggedIn() {
 		return nil
 	}
-	return clientMap[clientId] // Retorna nil se não existir
-}
 
-func setStatus(client *whatsmeow.Client, status string, JID types.JID) {
-	if status == "conectado" {
-		typePresence := types.PresenceAvailable
-		client.SendPresence(typePresence)
-		return
-	}
-	if status == "desconectado" {
-		typePresence := types.PresenceUnavailable
-		client.SendPresence(typePresence)
-		return
-	}
-	if status == "digitando" {
-		client.SendChatPresence(JID, types.ChatPresenceComposing, "")
-		return
-	}
-	if status == "gravando" {
-		client.SendChatPresence(JID, types.ChatPresence(types.ChatPresenceMediaAudio), "")
-		return
-	}
+	return clientMap[clientId] // Retorna nil se não existir
 }
 
 var (
@@ -1109,19 +1023,19 @@ var (
 func sendSeenMessages(clientId string) {
 	seenMessagesQueueMutex.Lock()
 	defer seenMessagesQueueMutex.Unlock()
-	data := GenericPayload{
+	data := modules.GenericPayload{
 		Evento:   "MENSAGEM_LIDA",
 		ClientID: clientId,
 		Data:     seenMessagesQueue.messageBuffer[clientId],
 	}
 	lastIndex := strings.LastIndex(clientId, "_")
 	sufixo := clientId[lastIndex+1:]
-	baseURL := strings.Split(mapOficial[sufixo], "chatbot")[0]
+	baseURL := strings.Split(modules.MapOficial[sufixo], "chatbot")[0]
 	if strings.Contains(baseURL, "disparo") {
-		baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
+		baseURL = strings.Split(modules.MapOficial[sufixo], "disparo")[0]
 	}
 	fmt.Println("✅ -> MENSAGEM LIDA DO CLIENTE ", clientId)
-	sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/read/")
+	modules.SendToEndPoint(data, baseURL+"chatbot/chat/mensagens/read/")
 	seenMessagesQueue.messageBuffer[clientId] = nil
 	if timer, exists := seenMessagesQueue.messageTimeout[clientId]; exists {
 		timer.Stop()
@@ -1246,19 +1160,6 @@ type sendMessageInfo struct {
 	Counter          int32                    `json:"counter"`
 }
 
-type singleMessageInfo struct {
-	JID         types.JID
-	clientId    string
-	text        string
-	idMensagem  string
-	focus       string
-	number      string
-	LastError   error
-	context     context.Context
-	messageInfo *waE2E.Message
-	client      *whatsmeow.Client
-	Attempts    int32
-}
 type Mood struct {
 	Name            string
 	EventsFrequency int     // in minutes
@@ -1378,10 +1279,10 @@ func simulateEvents(clientId string, mood Mood) {
 
 	switch {
 	case r < pOnline:
-		setStatus(client, "conectado", types.JID{})
+		modules.SetStatus(client, "conectado", types.JID{})
 		fmt.Printf("[%s] -> online (mood %s)\n", clientId, mood.Name)
 	case r < pOnline+pOffline:
-		setStatus(client, "desconectado", types.JID{})
+		modules.SetStatus(client, "desconectado", types.JID{})
 		fmt.Printf("[%s] -> offline (mood %s)\n", clientId, mood.Name)
 	case r < pOnline+pOffline+pTyping:
 		found, number, server := modules.FindRandomNumberInCache(clientId)
@@ -1389,11 +1290,11 @@ func simulateEvents(clientId string, mood Mood) {
 			return
 		}
 		JID := types.JID{User: number, Server: server}
-		setStatus(client, "digitando", JID)
+		modules.SetStatus(client, "digitando", JID)
 		dummyText := "Bom dia, tudo bem ?"
 		duration := humanTypingDuration(dummyText)
 		time.Sleep(duration)
-		setStatus(client, "conectado", types.JID{})
+		modules.SetStatus(client, "conectado", types.JID{})
 		fmt.Printf("[%s] -> typing for %v (to %s)\n", clientId, duration, number)
 	// case r < pOnline+pOffline+pTyping+pAudio:
 	// 	// prefer NOT to fake audio recording unless you actually send audio sometimes.
@@ -1403,9 +1304,9 @@ func simulateEvents(clientId string, mood Mood) {
 	// 		return
 	// 	}
 	// 	JID := types.JID{User: number, Server: server}
-	// 	setStatus(client, "gravando", JID)
+	// 	modules.SetStatus(client, "gravando", JID)
 	// 	time.Sleep(time.Duration(2+rng.Intn(6)) * time.Second) // 2-8s
-	// 	setStatus(client, "conectado", types.JID{})
+	// 	modules.SetStatus(client, "conectado", types.JID{})
 	// 	fmt.Printf("[%s] -> recorded-sim (short) to %s\n", clientId, number)
 	default:
 		// nothing — leave it alone
@@ -1489,21 +1390,21 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			if client == nil {
 				return
 			}
-			msg := singleMessageInfo{
-				clientId:    currentClientID,
-				client:      client,
-				context:     context.Background(),
-				messageInfo: nil,
+			msg := modules.SingleMessageInfo{
+				ClientId:    currentClientID,
+				Client:      client,
+				Context:     context.Background(),
+				MessageInfo: nil,
 				Attempts:    0,
 				LastError:   nil,
-				focus:       focus,
-				text:        text,
-				number:      number,
-				idMensagem:  idMensagem,
+				Focus:       focus,
+				Text:        text,
+				Number:      number,
+				IdMensagem:  idMensagem,
 			}
 
-			text = msg.text
-			number = msg.number
+			text = msg.Text
+			number = msg.Number
 			var idImage string
 			switch v := item["id_image"].(type) {
 			case string:
@@ -1542,7 +1443,7 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 				}
 			}
 			msg.JID = JID
-			setStatus(client, "digitando", JID)
+			modules.SetStatus(client, "digitando", JID)
 			message := &waE2E.Message{
 				ExtendedTextMessage: &waE2E.ExtendedTextMessage{
 					Text: proto.String(text),
@@ -1562,14 +1463,14 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 				}
 				response := validNumber[0]
 				cell := response.JID.User
-				formatedNumber := formatPhoneNumber(cell)
+				formatedNumber := modules.FormatPhoneNumber(cell)
 				if formatedNumber != "" {
 					contactMessage := &waE2E.Message{
 						ContactMessage: &waE2E.ContactMessage{
 							DisplayName: proto.String(sendContactMap["nome"]),
 							Vcard:       proto.String("BEGIN:VCARD\nVERSION:3.0\nN:;" + sendContactMap["nome"] + ";;;\nFN:" + sendContactMap["nome"] + "\nitem1.TEL;waid=" + cell + ":" + formatedNumber + "\nitem1.X-ABLabel:Celular\nEND:VCARD"),
 						}}
-					msg.messageInfo = contactMessage
+					msg.MessageInfo = contactMessage
 					processarMensagem(msg, sendInfo.UUID)
 					// client.SendMessage(context.Background(), JID, contactMessage)
 				} else {
@@ -1603,9 +1504,9 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 						}
 						tempMessage, _ := prepararMensagemArquivo(uniqueFileText, message, "./uploads/"+sendInfo.UUID+fileName, client, currentClientID, msg, sendInfo.UUID)
 						if documento_padrao != nil {
-							msg.messageInfo = tempMessage
-							currentClientID = msg.clientId
-							client = msg.client
+							msg.MessageInfo = tempMessage
+							currentClientID = msg.ClientId
+							client = msg.Client
 							processarMensagem(msg, sendInfo.UUID)
 						} else {
 							message = tempMessage
@@ -1658,12 +1559,11 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 			}
 			if paymentMessage != nil {
 			}
-			msg.messageInfo = message
-			currentClientID = msg.clientId
-			client = msg.client
+			msg.MessageInfo = message
+			currentClientID = msg.ClientId
+			client = msg.Client
 			processarMensagem(msg, sendInfo.UUID)
 			if currentCount >= int32(len(sendInfo.Result)) {
-				fmt.Println("Finalizado")
 				if documento_padrao != nil {
 					path := documento_padraoPath
 					if err := os.Remove(path); err != nil {
@@ -1696,11 +1596,12 @@ func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
 
 }
 func autoCleanup() {
-	_15minTicker := time.NewTicker(15 * time.Minute)
-	for range _15minTicker.C {
-		modules.LogMemUsage()
-		modules.SearchNearMessages()
-	}
+	// _15minTicker := time.NewTicker(2 * time.Minute)
+	// for range _15minTicker.C {
+	// 	fmt.Println("Procurando novas mensagens")
+	// 	modules.LogMemUsage()
+	// 	// modules.SearchNearMessages()
+	// }
 	ticker := time.NewTicker(1 * time.Hour)
 	for range ticker.C {
 		clientsMutex.Lock()
@@ -1717,14 +1618,14 @@ func autoCleanup() {
 	}
 
 }
-func processarMensagem(msg singleMessageInfo, uuid string) {
+func processarMensagem(msg modules.SingleMessageInfo, uuid string) {
 	if err := enviarMensagem(msg, uuid); err != nil {
 		msg.Attempts++
 		msg.LastError = err
 		requeueMessage(msg, uuid) // Adicione a mensagem a uma fila de retentativas
 	}
 }
-func requeueMessage(msg singleMessageInfo, uuid string) {
+func requeueMessage(msg modules.SingleMessageInfo, uuid string) {
 	newAttempts := atomic.AddInt32(&msg.Attempts, 1)
 	if newAttempts >= 3 {
 		println("Mensagem passou quantidade de tentativas máximas")
@@ -1740,24 +1641,24 @@ func adicionarFocusedMessage(key string) {
 	defer focusedMessagesKeysMutex.Unlock()
 	focusedMessagesKeys = append(focusedMessagesKeys, key)
 }
-func enviarMensagem(msg singleMessageInfo, uuid string) error {
+func enviarMensagem(msg modules.SingleMessageInfo, uuid string) error {
 	fmt.Println("Enviando mensagem")
-	clientId := msg.clientId
-	client := msg.client
+	clientId := msg.ClientId
+	client := msg.Client
 	clientById := getClient(clientId)
 	if clientById != nil && clientById != client {
 		client = clientById
 	}
 	JID := msg.JID
-	context := msg.context
-	text := msg.text
-	focus := msg.focus
-	idMensagem := msg.idMensagem
-	number := msg.number
+	context := msg.Context
+	text := msg.Text
+	focus := msg.Focus
+	idMensagem := msg.IdMensagem
+	number := msg.Number
 	// inJSONMessageInfo, _ := json.MarshalIndent(msg.messageInfo, "", "  ")
 	// fmt.Println("ID Disparo :", uuid, " | JID ENVIADO ", JID, string(inJSONMessageInfo))
 
-	retornoEnvio, err := client.SendMessage(context, JID, msg.messageInfo)
+	retornoEnvio, err := client.SendMessage(context, JID, msg.MessageInfo)
 	// fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", JID, clientId, text, number)
 	fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s, JID:%s] ENVIADA \n", retornoEnvio.ID, clientId, text, number, JID.User)
 	// removeMensagemPendente(uuid, text, number)
@@ -1772,7 +1673,7 @@ func enviarMensagem(msg singleMessageInfo, uuid string) error {
 	}
 	fmt.Println("Id da mensagem q recebi : ", idMensagem)
 	if idMensagem != "" {
-		data := GenericPayload{
+		data := modules.GenericPayload{
 			Evento:   "MENSAGEM_ENVIADA",
 			ClientID: clientId,
 			Data: map[string]string{
@@ -1783,35 +1684,36 @@ func enviarMensagem(msg singleMessageInfo, uuid string) error {
 		}
 		lastIndex := strings.LastIndex(clientId, "_")
 		sufixo := clientId[lastIndex+1:]
-		baseURL := strings.Split(mapOficial[sufixo], "chatbot")[0]
+		baseURL := strings.Split(modules.MapOficial[sufixo], "chatbot")[0]
 		if strings.Contains(baseURL, "disparo") {
-			baseURL = strings.Split(mapOficial[sufixo], "disparo")[0]
+			baseURL = strings.Split(modules.MapOficial[sufixo], "disparo")[0]
 		}
-		sendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novo-id/")
+		modules.SendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novo-id/")
 	}
 	return nil
 }
 
 func cleanUploads() { // limpar arquivos do uploads
-	RemoveContents("./uploads/")
+	dir := "./uploads/"
+	arquivosAindaSalvos := modules.GetFilesToBeSent()
+	arquivosNaPasta, _ := GetContents(dir)
+	diff := modules.Difference(arquivosNaPasta, arquivosAindaSalvos)
+	fmt.Println(arquivosNaPasta, arquivosAindaSalvos, diff)
+	for _, name := range diff {
+		err := os.RemoveAll(filepath.Join(dir, name))
+		if err != nil {
+		}
+	}
+	// RemoveContents("./uploads/")
 }
-func RemoveContents(dir string) error {
+func GetContents(dir string) ([]string, error) {
 	d, err := os.Open(dir)
 	if err != nil {
-		return err
+		return []string{}, err
 	}
 	defer d.Close()
 	names, err := d.Readdirnames(-1)
-	if err != nil {
-		return err
-	}
-	for _, name := range names {
-		err = os.RemoveAll(filepath.Join(dir, name))
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	return names, err
 }
 
 var lastLimit int64 = -1
@@ -1844,13 +1746,12 @@ func main() {
 	// SOFT CAP 10MB : 3.57MB - 3.59MB - 4.48MB
 	// simulateEvents("teste_disparo_shark", moods["active"])
 	// found, number := modules.FindNumberInCache("5537984103402", "teste_disparo_shark")
-	// modules.InitMessagesQueue(modules.BasicActions{
-	// 	GetClient: getClient, CheckNumberWithRetry: checkNumberWithRetry,
-	// })
+	modules.InitMessagesQueue(modules.BasicActions{
+		GetClient: getClient, CheckNumberWithRetry: checkNumberWithRetry, TryConnecting: tryConnecting,
+	})
 
 	modules.RemoveExpiredCaches()
 	cleanUploads()
-
 	go autoCleanup()
 
 	signalCh := make(chan os.Signal, 1)
@@ -2023,9 +1924,16 @@ func main() {
 	})
 	r.Post("/sendFiles", func(c *fiber.Ctx) error {
 		clientId := utils.CopyString(c.FormValue("clientId"))
-		UUID := clientId + uuid.New().String()
+		slug_disparo := utils.CopyString(c.FormValue("slug_disparo"))
+		UUID := slug_disparo
+		if UUID == "" {
+			UUID = clientId + uuid.New().String()
+		}
+		fmt.Println(slug_disparo)
 		fmt.Printf("------------------ %s Send Files Request ------------------------ \n\n", clientId)
+
 		client := getClient(clientId)
+
 		if client == nil {
 			client = tryConnecting(clientId)
 			if client == nil {
@@ -2041,8 +1949,11 @@ func main() {
 		}
 		noTimeout := utils.CopyString(c.FormValue("noTimeout"))
 		sendContact := utils.CopyString(c.FormValue("contact"))
+		fmt.Println("Contato recebido ! : ", c.FormValue(sendContact))
 		infoObjects := utils.CopyString(c.FormValue("infoObjects"))
 		dataProgramada := utils.CopyString(c.FormValue("dataProgramada"))
+		timestamp := time.Now().Unix()
+
 		if dataProgramada != "" {
 			layout := "2006-01-02 15:04:05"
 			t, err := time.Parse(layout, strings.TrimSpace(dataProgramada))
@@ -2052,20 +1963,19 @@ func main() {
 					"message": "Data Inválida",
 				})
 			}
+			timestamp = t.Add(3 * time.Hour).Unix()
+
 		}
+		fmt.Println("Timestamp", timestamp)
 		documento_padrao_filePath := ""
-		files_filePath := ""
+		// files_filePath := ""
 		var documento_padrao *multipart.FileHeader = nil
 		documento_padrao, err = c.FormFile("documento_padrao")
 		if err != nil {
 			fmt.Println("📁 ❌-> Nenhum documento padrão enviado.", err)
 		}
 		if documento_padrao != nil {
-			savePath := "./uploads/" + UUID + documento_padrao.Filename
-			if dataProgramada != "" {
-				savePath = normalizeFileName("./arquivos_disparos_programados/padrao_" + dataProgramada + clientId + documento_padrao.Filename)
-				// documento_padrao_filePath = savePath
-			}
+			savePath := "./uploads/" + UUID + "_!-!_" + documento_padrao.Filename
 			if err := c.SaveFile(documento_padrao, savePath); err != nil {
 				fmt.Printf("Erro ao salvar o arquivo: %v", err)
 			}
@@ -2074,75 +1984,47 @@ func main() {
 				if errorconvert == nil {
 					defer os.Remove("./uploads/" + clientId + documento_padrao.Filename)
 					documento_padrao.Filename = strings.Replace(documento_padrao.Filename, ".webp", ".jpeg", -1)
+					savePath = strings.Replace(savePath, ".webp", ".jpeg", -1)
 				}
 			}
+			documento_padrao_filePath = savePath
 		}
-		var files *multipart.FileHeader = nil
-		files, _ = c.FormFile("file")
-		var result []map[string]interface{}
+		fmt.Println(infoObjects)
+		var resultStructed []modules.MessageIndividual
 		// Deserializando o JSON para o map
-		err = json.Unmarshal([]byte(infoObjects), &result)
+		err = json.Unmarshal([]byte(infoObjects), &resultStructed)
 		if err != nil {
-			fmt.Printf("Erro ao converter JSON: %v", err)
+			fmt.Printf("Erro ao converter JSON structed: %v", err)
 		}
-		for i := range result {
-			result[i]["clientId"] = clientId
-		}
-		// var resultStructed []modules.MessageIndividual
-		// // Deserializando o JSON para o map
-		// err = json.Unmarshal([]byte(infoObjects), &resultStructed)
-		// if err != nil {
-		// 	fmt.Printf("Erro ao converter JSON structed: %v", err)
-		// }
-		// fmt.Println(resultStructed)
-		if dataProgramada != "" {
-			if files != nil {
-				savePath := normalizeFileName("./arquivos_disparos_programados/zip_" + dataProgramada + clientId + files.Filename)
-				// files_filePath = savePath
-				if err := c.SaveFile(files, savePath); err != nil {
-					fmt.Printf("Erro ao salvar o arquivo files para disparo Futuros: %v", err)
-				}
-			}
-			fmt.Println(dataProgramada)
-			layout := "2006-01-02 15:04:05"
-
-			t, err := time.Parse(layout, strings.TrimSpace(dataProgramada))
+		fmt.Println(resultStructed)
+		sendContactStructed := modules.Send_contact{}
+		if sendContact != "" {
+			err = json.Unmarshal([]byte(sendContact), &sendContactStructed)
 			if err != nil {
-				fmt.Println("Erro ao converter data:", t, err)
-				return c.Status(500).JSON(fiber.Map{
-					"message": "Data Inválida",
-				})
+				fmt.Printf("Erro ao converter JSON structed: %v", err)
 			}
-			tUTC := t.In(time.UTC)
-			fmt.Println("DATA COM TIMESTAMP", tUTC)
-			modules.CreateSchedule(uuid.NewString(), t.Add(3*time.Hour), modules.MessageInfos{
-				ClientID:        clientId,
-				InfoObjects:     infoObjects,
-				DocumentoPadrao: documento_padrao_filePath,
-				Files:           files_filePath,
-			})
-			modules.CheckCloseSchedules()
-
+		}
+		// go processarGrupoMensagens(sendMessageInfo{ClientIdLocal: clientId,
+		// 	Result:           result,
+		// 	documento_padrao: documento_padrao,
+		// 	files:            files,
+		// 	SendContact:      sendContact,
+		// 	NoTimeout:        noTimeout,
+		// 	DataProgramada:   dataProgramada,
+		// 	InfoObjects:      infoObjects, Counter: 0, UUID: UUID})
+		fmt.Println("Salvando : ", documento_padrao_filePath)
+		go modules.AddMensagemPendente(modules.SendMessageInfo{ClientIdLocal: clientId,
+			Result:           resultStructed,
+			Documento_padrao: documento_padrao_filePath,
+			// files:            files,
+			SendContact:    &sendContactStructed,
+			NoTimeout:      noTimeout,
+			DataProgramada: timestamp, IdBatch: UUID})
+		if dataProgramada != "" {
 			return c.Status(200).JSON(fiber.Map{
 				"message": "Disparo agendado com sucesso",
 			})
 		}
-
-		go processarGrupoMensagens(sendMessageInfo{ClientIdLocal: clientId,
-			Result:           result,
-			documento_padrao: documento_padrao,
-			files:            files,
-			SendContact:      sendContact,
-			NoTimeout:        noTimeout,
-			DataProgramada:   dataProgramada,
-			InfoObjects:      infoObjects, Counter: 0, UUID: UUID})
-		// go modules.AddMensagemPendente(modules.SendMessageInfo{ClientIdLocal: clientId,
-		// 	Result: resultStructed,
-		// 	// Documento_padrao: documento_padrao,
-		// 	// files:            files,
-		// 	SendContact:    sendContact,
-		// 	NoTimeout:      noTimeout,
-		// 	DataProgramada: dataProgramada, UUID: clientId + uuid.New().String()})
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Arquivo recebido e enviado no WhatsApp.",
 		})
@@ -2232,10 +2114,10 @@ func main() {
 				clientsMutex.Unlock()
 				fmt.Println("🎉 -> CLIENTE CONECTADO", clientId)
 				if strings.Contains(clientId, "chat") {
-					setStatus(client, "conectado", types.JID{})
+					modules.SetStatus(client, "conectado", types.JID{})
 				}
 				UpdateMemoryLimit(len(clientMap))
-				data := GenericPayload{
+				data := modules.GenericPayload{
 					Evento:   "CLIENTE_CONECTADO",
 					ClientID: clientId,
 					Data: map[string]string{
@@ -2246,11 +2128,11 @@ func main() {
 				}
 				lastIndex := strings.LastIndex(clientId, "_")
 				sufixo := clientId[lastIndex+1:]
-				baseURL := mapOficial[sufixo]
+				baseURL := modules.MapOficial[sufixo]
 				if sendEmail != "" {
 					getOrSetEmails("INSERT INTO emails_conexoes ( `clientId`, `email`) VALUES (?,?);", []any{clientId, "luisgustavo20061@gmail.com"})
 				}
-				sendToEndPoint(data, baseURL)
+				modules.SendToEndPoint(data, baseURL)
 			case *events.Disconnected:
 				fmt.Printf("🔄 -> RECONECTANDO CLIENTE %s", clientId)
 			case *events.Receipt:
@@ -2301,26 +2183,26 @@ func main() {
 							// Criar o data URL
 							dataURL := fmt.Sprintf("data:image/png;base64,%s", base64Img)
 
-							data := GenericPayload{
+							data := modules.GenericPayload{
 								Evento:   evento,
 								ClientID: clientIdCopy,
 								Data:     dataURL,
 							}
 							lastIndex := strings.LastIndex(clientIdCopy, "_")
 							sufixo := clientIdCopy[lastIndex+1:]
-							baseURL := mapOficial[sufixo]
-							sendToEndPoint(data, baseURL)
+							baseURL := modules.MapOficial[sufixo]
+							modules.SendToEndPoint(data, baseURL)
 
 						} else {
-							data := GenericPayload{
+							data := modules.GenericPayload{
 								Evento:   evento,
 								ClientID: clientIdCopy,
 								Data:     evt.Code,
 							}
 							lastIndex := strings.LastIndex(clientIdCopy, "_")
 							sufixo := clientIdCopy[lastIndex+1:]
-							baseURL := mapOficial[sufixo]
-							sendToEndPoint(data, baseURL)
+							baseURL := modules.MapOficial[sufixo]
+							modules.SendToEndPoint(data, baseURL)
 						}
 						currentRepeat := atomic.AddInt32(&counterPtr, int32(1))
 						if currentRepeat >= 5 {
@@ -2348,28 +2230,28 @@ func main() {
 				// Criar o data URL
 				dataURL := fmt.Sprintf("data:image/png;base64,%s", base64Img)
 
-				data := GenericPayload{
+				data := modules.GenericPayload{
 					Evento:   evento,
 					ClientID: clientId,
 					Data:     dataURL,
 				}
 				lastIndex := strings.LastIndex(clientId, "_")
 				sufixo := clientId[lastIndex+1:]
-				baseURL := mapOficial[sufixo]
-				sendToEndPoint(data, baseURL)
+				baseURL := modules.MapOficial[sufixo]
+				modules.SendToEndPoint(data, baseURL)
 				return c.Status(200).JSON(fiber.Map{
 					"qrCode": dataURL,
 				})
 			} else {
-				data := GenericPayload{
+				data := modules.GenericPayload{
 					Evento:   evento,
 					ClientID: clientId,
 					Data:     firstQRCode.Code,
 				}
 				lastIndex := strings.LastIndex(clientId, "_")
 				sufixo := clientId[lastIndex+1:]
-				baseURL := mapOficial[sufixo]
-				sendToEndPoint(data, baseURL)
+				baseURL := modules.MapOficial[sufixo]
+				modules.SendToEndPoint(data, baseURL)
 				return c.Status(200).JSON(fiber.Map{
 					"qrCode": firstQRCode.Code,
 				})
@@ -2389,6 +2271,8 @@ func main() {
 		return nil
 	})
 	fmt.Println("⏳ Iniciando servidor...", PORT)
+	// modules.SearchNearMessages()
+
 	r.Listen(":" + PORT)
 }
 func getOrSetEmails(query string, args []any) *sql.Rows {
@@ -2462,7 +2346,7 @@ func desconctarCliente(clientId string) bool {
 	fmt.Println("⛔ -> CLIENTE DESCONECTADO", clientId)
 	// sendEmailDisconnection(clientId)
 	client := getClient(clientId)
-	data := GenericPayload{
+	data := modules.GenericPayload{
 		Evento:   "CLIENTE_DESCONECTADO",
 		ClientID: clientId,
 		Data:     "CLIENTE_DESCONECTADO",
@@ -2470,8 +2354,8 @@ func desconctarCliente(clientId string) bool {
 	delete(clientMap, clientId)
 	lastIndex := strings.LastIndex(clientId, "_")
 	sufixo := clientId[lastIndex+1:]
-	baseURL := mapOficial[sufixo]
-	sendToEndPoint(data, baseURL)
+	baseURL := modules.MapOficial[sufixo]
+	modules.SendToEndPoint(data, baseURL)
 	defer modules.RemoveProxyToClientId(clientId)
 	if client == nil {
 		// Reconecta sob demanda
@@ -2631,7 +2515,7 @@ func convertPngToJpeg(pngPath string) (string, error) {
 
 	return outPath, nil
 }
-func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile string, client *whatsmeow.Client, clientId string, msg singleMessageInfo, UUID string) (*waE2E.Message, string) {
+func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile string, client *whatsmeow.Client, clientId string, msg modules.SingleMessageInfo, UUID string) (*waE2E.Message, string) {
 	// Abrindo o arquivo
 	var mensagem_ *waE2E.Message
 	if message != nil {
@@ -2772,7 +2656,7 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 				mensagem_.ExtendedTextMessage = &waE2E.ExtendedTextMessage{}
 			}
 			mensagem_.ExtendedTextMessage.Text = proto.String(text)
-			msg.messageInfo = mensagem_
+			msg.MessageInfo = mensagem_
 			processarMensagem(msg, UUID)
 		}
 		mensagem_.ExtendedTextMessage = nil
@@ -2843,23 +2727,6 @@ func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		}
 		mensagem_.DocumentMessage = documentMsg
 	}
+	fmt.Println(mensagem_)
 	return mensagem_, chosedFile
-}
-func formatPhoneNumber(phone string) string {
-	// Remove caracteres não numéricos
-	re := regexp.MustCompile(`\D`)
-	phone = re.ReplaceAllString(phone, "")
-
-	// Verifica se o número tem o código do país correto
-	if len(phone) < 12 || len(phone) > 13 {
-		return "Número inválido"
-	}
-	formatted := "+" + phone[:2] + " " + phone[2:4] + " "
-	// Verifica se é um número de celular (tem o nono dígito)
-	if len(phone) == 13 {
-		formatted += phone[4:5] + " " + phone[5:9] + "-" + phone[9:]
-	} else {
-		formatted += phone[4:8] + "-" + phone[8:]
-	}
-	return formatted
 }
