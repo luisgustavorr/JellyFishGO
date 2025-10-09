@@ -21,9 +21,13 @@ type ProxysServers struct {
 }
 
 func connectMysql() *sql.DB {
+	if mysqlConnection != nil {
+		return mysqlConnection
+	}
 	db, err := sql.Open("mysql", os.Getenv("STRING_CONN"))
 	if err != nil {
-		log.Fatal("failed to open MySQL:", err)
+		log.Println("failed to open MySQL:", err)
+
 	}
 
 	// Configure pooling
@@ -34,7 +38,7 @@ func connectMysql() *sql.DB {
 
 	// Test connection
 	if err := db.Ping(); err != nil {
-		log.Fatal("failed to connect to MySQL:", err)
+		log.Println("failed to connect to MySQL:", err)
 	}
 
 	return db
