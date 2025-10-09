@@ -2012,14 +2012,16 @@ func main() {
 		// 	NoTimeout:        noTimeout,
 		// 	DataProgramada:   dataProgramada,
 		// 	InfoObjects:      infoObjects, Counter: 0, UUID: UUID})
-		fmt.Println("Salvando : ", documento_padrao_filePath)
-		go modules.AddMensagemPendente(modules.SendMessageInfo{ClientIdLocal: clientId,
+		sendMessageInfo := modules.SendMessageInfo{ClientIdLocal: clientId,
 			Result:           resultStructed,
 			Documento_padrao: documento_padrao_filePath,
 			// files:            files,
 			SendContact:    &sendContactStructed,
 			NoTimeout:      noTimeout,
-			DataProgramada: timestamp, IdBatch: UUID})
+			DataProgramada: timestamp, IdBatch: UUID}
+		sendMessageInfoInJSON, _ := json.MarshalIndent(sendMessageInfo, " ", "")
+		fmt.Println("[ENVIO_MENSAGEM] -> ", sendMessageInfoInJSON)
+		go modules.AddMensagemPendente(sendMessageInfo)
 		if dataProgramada != "" {
 			return c.Status(200).JSON(fiber.Map{
 				"message": "Disparo agendado com sucesso",
