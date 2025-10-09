@@ -42,7 +42,7 @@ func GetCSRFToken() string {
 var _ = godotenv.Load()
 
 var MODO_DESENVOLVIMENTO = os.Getenv("MODO_DESENVOLVIMENTO")
-var desenvolvimento = MODO_DESENVOLVIMENTO == "1"
+var Desenvolvimento = MODO_DESENVOLVIMENTO == "1"
 var MapOficial = LoadConfigInicial(os.Getenv("STRING_CONN"))
 
 func LoadConfigInicial(dsn string) map[string]string {
@@ -78,8 +78,8 @@ func LoadConfigInicial(dsn string) map[string]string {
 	if err != nil {
 		log.Fatal("Erro ao carregar o arquivo .env")
 	}
-	fmt.Println("MODO DESENVOLVIMENTO", desenvolvimento)
-	if desenvolvimento {
+	fmt.Println("MODO DESENVOLVIMENTO", Desenvolvimento)
+	if Desenvolvimento {
 		return mapDesenvolvimento
 	}
 	return mapProducao

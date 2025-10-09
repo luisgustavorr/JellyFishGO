@@ -150,9 +150,9 @@ func connectToMessagesQueueDB() *Database {
 	insertStmt, err := db.Prepare(`
 	INSERT INTO pendingMessages (
 		uuid, idBatch, clientId, text, number, data_desejada, documento_padrao, 
-		quoted_message, edited_id_message, focus, id_grupo, send_contact
+		quoted_message, edited_id_message, focus, id_grupo, send_contact,indev
 	)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,$13)
 	ON CONFLICT (uuid) DO UPDATE SET
 		idBatch = EXCLUDED.idBatch,
 		clientId = EXCLUDED.clientId,
@@ -164,7 +164,8 @@ func connectToMessagesQueueDB() *Database {
 		edited_id_message = EXCLUDED.edited_id_message,
 		focus = EXCLUDED.focus,
 		id_grupo = EXCLUDED.id_grupo,
-		send_contact = EXCLUDED.send_contact;
+		send_contact = EXCLUDED.send_contact,
+		indev = EXCLUDED.indev;
 `)
 	if err != nil {
 		log.Fatal("Erro preparando insertStmt:", err)
@@ -195,7 +196,7 @@ func insertMessage(clientId string, idBatch string, idMessage string, msgInfo Me
 	if send_contact != nil {
 		jsonStringOfSendContact, _ = json.Marshal(send_contact)
 	}
-	_, err = db.Stmts.InsertUUID.Exec(idMessage, idBatch, clientId, msgInfo.Text, msgInfo.Number, data_desejada, msgInfo.Documento_padrao, string(jsonStringOfQuotedMessage), msgInfo.Edited_id_message, msgInfo.Focus, msgInfo.Id_grupo, string(jsonStringOfSendContact))
+	_, err = db.Stmts.InsertUUID.Exec(idMessage, idBatch, clientId, msgInfo.Text, msgInfo.Number, data_desejada, msgInfo.Documento_padrao, string(jsonStringOfQuotedMessage), msgInfo.Edited_id_message, msgInfo.Focus, msgInfo.Id_grupo, string(jsonStringOfSendContact), Desenvolvimento)
 	if err != nil {
 		log.Println("Erro ao adicionar mensagem:", err)
 	}
@@ -238,7 +239,7 @@ func InitMessagesQueue(basicActions BasicActions) {
 	db := connectToMessagesQueueDB()
 
 	_, err := db.DB.Exec(`UPDATE pendingMessages
-  SET agendada = false WHERE agendada != false`)
+  SET agendada = false WHERE agendada != false AND indev = $1`, Desenvolvimento)
 	if err != nil {
 		log.Println("Erro ao atualizar status agendada:", err)
 	}
@@ -283,7 +284,7 @@ func InitMessagesQueue(basicActions BasicActions) {
 func GetFilesToBeSent() []string {
 	fmt.Println("Procurando Arquivos ")
 	db := connectToMessagesQueueDB()
-	rows, err := db.DB.Query(`SELECT documento_padrao FROM pendingMessages WHERE documento_padrao != '' AND data_desejada <= $1`, time.Now().Add(15*time.Minute).Unix())
+	rows, err := db.DB.Query(`SELECT documento_padrao FROM pendingMessages WHERE documento_padrao != '' AND data_desejada <= $1 AND indev = $2`, time.Now().Add(15*time.Minute).Unix(), Desenvolvimento)
 	if err != nil {
 		log.Println("Erro ao remover mensagem:", err)
 	}
@@ -382,7 +383,8 @@ func CancelMessages(id string, batch bool) error {
   SET agendada = true
   WHERE data_desejada <= $1
   AND agendada = false
-  RETURNING uuid`, time.Now().Unix())
+  AND indev = $2
+  RETURNING uuid`, time.Now().Unix(), Desenvolvimento)
 	if err != nil {
 		return err
 	}
@@ -395,8 +397,8 @@ func pollDueMessages(batchSize int) {
 	rows, err := db.DB.Query(`UPDATE pendingMessages
   SET agendada = true
   WHERE data_desejada <= $1
-  AND agendada = false
-  RETURNING uuid`, time.Now().Unix())
+  AND agendada = false AND indev = $2
+  RETURNING uuid`, time.Now().Unix(), Desenvolvimento)
 	if err != nil {
 		log.Println("Erro ao buscar mensagens devidas:", err)
 		return
@@ -411,6 +413,8 @@ func pollDueMessages(batchSize int) {
 		}
 		jobQueue <- u
 		count++
+		fmt.Println("Adicionando mensagem")
+
 		if count >= batchSize {
 			break
 		}
@@ -418,7 +422,7 @@ func pollDueMessages(batchSize int) {
 }
 
 func enviarMensagem(uuid string) {
-
+	fmt.Println("Tentando enviar mensafem", uuid)
 	db := connectToMessagesQueueDB()
 	mainCtx := context.Background()
 	ctx := context.Background()
