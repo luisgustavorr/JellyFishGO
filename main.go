@@ -1,28 +1,20 @@
 package main
 
 import (
-	"archive/zip"
 	"bytes"
 	"context"
 	"database/sql"
 	"encoding/base64"
 	"fmt"
-	"image"
-	"image/color"
-	"image/draw"
-	"image/jpeg"
-	"image/png"
 	"io"
 	"jellyFish/modules"
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"regexp"
 	"runtime/debug"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -43,7 +35,6 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/pprof"
 	"github.com/gofiber/fiber/v2/utils"
 	"github.com/google/uuid"
-	"github.com/h2non/filetype"
 	"github.com/joho/godotenv"
 	_ "github.com/mattn/go-sqlite3" // Importação do driver SQLite
 	"github.com/skip2/go-qrcode"
@@ -847,7 +838,7 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool
 	if found {
 		fmt.Printf("# ✅ -> Número '%s' (asked as : '%s') achado no cache !! \n", found_number, number)
 		return []types.IsOnWhatsAppResponse{
-			types.IsOnWhatsAppResponse{
+			{
 				Query: "",
 				IsIn:  true,
 				JID:   types.JID{User: found_number, Server: found_server},
@@ -855,7 +846,6 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool
 		}, nil
 	}
 	fmt.Println("Resultado em cache :", found, number)
-
 	for i := 0; i < maxRetries; i++ {
 		responses, err := isOnWhatsAppSafe(client, []string{number})
 		if err == nil && len(responses) > 0 {
@@ -865,6 +855,9 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool
 
 				return responses, nil
 			}
+		} else {
+			return []types.IsOnWhatsAppResponse{}, err
+
 		}
 		time.Sleep(backoff)
 	}
@@ -880,11 +873,15 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool
 		if err == nil && len(responses) > 0 && responses[0].IsIn {
 			modules.SaveNumberInCache(number, responses[0].JID.User, responses[0].JID.Server, clientId)
 			return responses, nil
+		} else {
+			time.Sleep(backoff)
+			backoff *= 2
+			return []types.IsOnWhatsAppResponse{}, err
+
 		}
-		time.Sleep(backoff)
-		backoff *= 2
+
 	}
-	return []types.IsOnWhatsAppResponse{}, fmt.Errorf("falha após %d tentativas: %v", maxRetries, err)
+	return []types.IsOnWhatsAppResponse{}, nil
 }
 
 // Tenta reconectar o WhatsApp do cliente
@@ -1315,286 +1312,6 @@ func simulateEvents(clientId string, mood Mood) {
 	lastAction.Store(clientId, time.Now())
 }
 
-func processarGrupoMensagens(sendInfoMain sendMessageInfo) {
-	workers := make(chan struct{}, 20)
-	limiter := rate.NewLimiter(rate.Every(2*time.Second), 1)
-	var wg sync.WaitGroup
-	fmt.Printf("Processando grupo de %v mensagens para %s | ID Disparo : %s \n", len(sendInfoMain.Result), sendInfoMain.ClientIdLocal, sendInfoMain.UUID)
-	var leitorZip *zip.Reader = nil
-	if sendInfoMain.files != nil {
-		zipFile, err := sendInfoMain.files.Open()
-		if err != nil {
-			log.Println("Erro abrindo ZIP", err)
-		}
-		defer zipFile.Close()
-		zipReader, err := zip.NewReader(zipFile, sendInfoMain.files.Size)
-		if err != nil {
-			log.Println(err)
-		}
-		leitorZip = zipReader
-	}
-	counter := sendInfoMain.Counter
-
-	documento_padrao_CAMINHO_INICIAL := ""
-	if sendInfoMain.documento_padrao != nil {
-		documento_padrao_CAMINHO_INICIAL = "./uploads/" + sendInfoMain.UUID + sendInfoMain.documento_padrao.Filename
-	}
-	manyResults := len(sendInfoMain.Result)
-	for i := range sendInfoMain.Result {
-		wg.Add(1)
-		workers <- struct{}{}
-		go func(index int, sendInfo sendMessageInfo, documento_padraoPath string) {
-			documento_padrao := sendInfo.documento_padrao
-			sendContact := sendInfo.SendContact
-			item := sendInfo.Result[i]
-			currentClientID, _ := item["clientId"].(string)
-			defer func() {
-				<-workers
-				wg.Done()
-			}()
-			currentCount := atomic.AddInt32(&counter, 1)
-			limiter.Wait(context.Background())
-			fmt.Printf("------------------ %s Inside Go Func Inside FOR (%v,%v)------------------------ \n\n", currentClientID, currentCount, len(sendInfo.Result))
-			focus, _ := item["focus"].(string)
-			text, ok := item["text"].(string)
-			if !ok {
-				text = ""
-			}
-			id_grupo, ok := item["id_grupo"].(string)
-			if !ok {
-				id_grupo = ""
-			}
-			idMensagem, ok := item["idMensagem"].(string)
-			if !ok {
-				idMensagem = "" // ou outro valor padrão
-			}
-			fmt.Println("ID da mensagem : ", idMensagem)
-			re := regexp.MustCompile("[0-9]+")
-			numberWithOnlyNumbers := strings.Join(re.FindAllString(item["number"].(string), -1), "")
-			if len(numberWithOnlyNumbers) > 2 && id_grupo == "" {
-				if numberWithOnlyNumbers[:2] != "55" {
-					numberWithOnlyNumbers = "+55" + numberWithOnlyNumbers
-				}
-			} else {
-				numberWithOnlyNumbers = ""
-			}
-			number := numberWithOnlyNumbers
-			client := getClient(currentClientID)
-			if client == nil {
-				client = tryConnecting(currentClientID)
-				if client == nil {
-					fmt.Println("⛔ -> Cliente não disponível, ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text, "| ID Grupo", id_grupo)
-					return
-				}
-			}
-			if client == nil {
-				return
-			}
-			msg := modules.SingleMessageInfo{
-				ClientId:    currentClientID,
-				Client:      client,
-				Context:     context.Background(),
-				MessageInfo: nil,
-				Attempts:    0,
-				LastError:   nil,
-				Focus:       focus,
-				Text:        text,
-				Number:      number,
-				IdMensagem:  idMensagem,
-			}
-
-			text = msg.Text
-			number = msg.Number
-			var idImage string
-			switch v := item["id_image"].(type) {
-			case string:
-				idImage = v
-			case int, int64, float64:
-				idImage = fmt.Sprintf("%v", v) // Converte para string
-			default:
-				idImage = "UNDEFINED"
-			}
-			quotedMessage, _ := item["quotedMessage"].(map[string]interface{})
-			paymentMessage, _ := item["paymentMessage"].(map[string]interface{})
-			editedIDMessage, ok := item["editedIDMessage"].(string)
-			if !ok {
-				editedIDMessage = "" // ou outro valor padrão
-			}
-			validNumber, err := checkNumberWithRetry(client, number, id_grupo != "", currentClientID)
-			var JID types.JID = types.JID{}
-			if id_grupo != "" {
-				JID = types.JID{User: strings.Replace(id_grupo, "@g.us", "", -1), Server: types.GroupServer}
-			} else {
-				if err != nil {
-					fmt.Println(err, "ERRO ISONWHATSAPP")
-					fmt.Println("⛔ -> Numero inválido Erro. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text, "| ID Grupo", id_grupo)
-					return
-				}
-				if len(validNumber) == 0 {
-					fmt.Println("⛔ -> Numero inválido. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text, "| ID Grupo", id_grupo)
-					return
-				}
-				response := validNumber[0] // Acessa o primeiro item da slicet
-				JID = response.JID
-				IsIn := response.IsIn
-				if !IsIn {
-					fmt.Println("⛔ -> Numero not In WhatsApp. ClientId: ", currentClientID, " | Numero: ", number, " | Mensagem :", text, "| ID Grupo", id_grupo)
-					return
-				}
-			}
-			msg.JID = JID
-			modules.SetStatus(client, "digitando", JID)
-			message := &waE2E.Message{
-				ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-					Text: proto.String(text),
-				},
-			}
-			if sendContact != "" {
-				var sendContactMap map[string]string
-				// Deserializando o JSON corretamente para o map
-				err = json.Unmarshal([]byte(sendContact), &sendContactMap)
-				if err != nil {
-					fmt.Println("Erro ao desserializar JSON:", err)
-					return
-				}
-				validNumber, err := client.IsOnWhatsApp([]string{sendContactMap["contato"]})
-				if err != nil {
-					fmt.Println(err, "ERRO IS ONWHATSAPP")
-				}
-				response := validNumber[0]
-				cell := response.JID.User
-				formatedNumber := modules.FormatPhoneNumber(cell)
-				if formatedNumber != "" {
-					contactMessage := &waE2E.Message{
-						ContactMessage: &waE2E.ContactMessage{
-							DisplayName: proto.String(sendContactMap["nome"]),
-							Vcard:       proto.String("BEGIN:VCARD\nVERSION:3.0\nN:;" + sendContactMap["nome"] + ";;;\nFN:" + sendContactMap["nome"] + "\nitem1.TEL;waid=" + cell + ":" + formatedNumber + "\nitem1.X-ABLabel:Celular\nEND:VCARD"),
-						}}
-					msg.MessageInfo = contactMessage
-					processarMensagem(msg, sendInfo.UUID)
-					// client.SendMessage(context.Background(), JID, contactMessage)
-				} else {
-					fmt.Println("FORMATADO ->", err)
-				}
-			}
-			if leitorZip != nil {
-				for _, arquivo := range leitorZip.File {
-					if strings.Contains(arquivo.Name, "documento_"+idImage) {
-						// Criar um arquivo local para salvar
-						fileName := strings.Replace(arquivo.Name, "documento_"+idImage+"_", "", -1)
-						destFile, err := os.Create("./uploads/" + currentClientID + fileName)
-						if err != nil {
-							fmt.Printf("erro ao criar arquivo: %v", err)
-						}
-						defer destFile.Close()
-						// Abrir o arquivo do ZIP
-						zipFileReader, err := arquivo.Open()
-						if err != nil {
-							fmt.Printf("erro ao abrir arquivo do zip: %v", err)
-						}
-						defer zipFileReader.Close()
-						// Copiar o conteúdo do arquivo do ZIP para o arquivo local
-						_, err = io.Copy(destFile, zipFileReader)
-						if err != nil {
-							fmt.Printf("erro ao copiar conteúdo para o arquivo: %v", err)
-						}
-						uniqueFileText := text
-						if documento_padrao != nil {
-							uniqueFileText = ""
-						}
-						tempMessage, _ := prepararMensagemArquivo(uniqueFileText, message, "./uploads/"+sendInfo.UUID+fileName, client, currentClientID, msg, sendInfo.UUID)
-						if documento_padrao != nil {
-							msg.MessageInfo = tempMessage
-							currentClientID = msg.ClientId
-							client = msg.Client
-							processarMensagem(msg, sendInfo.UUID)
-						} else {
-							message = tempMessage
-						}
-					}
-				}
-			}
-			if documento_padrao != nil {
-				message, documento_padraoPath = prepararMensagemArquivo(text, message, documento_padraoPath, client, currentClientID, msg, sendInfo.UUID)
-				documento_padrao_CAMINHO_INICIAL = documento_padraoPath
-
-			}
-			if quotedMessage != nil {
-				messageID, ok := quotedMessage["messageID"].(string)
-				if !ok {
-					log.Println("messageID não é uma string.")
-				}
-				sender, ok := quotedMessage["sender"].(string)
-				if !ok {
-					log.Println("sender não é uma string.")
-				}
-				messageQuoted, ok := quotedMessage["messageQuoted"].(string)
-				if !ok {
-					log.Println("messageQuoted não é uma string.")
-				}
-				validNumber, err := client.IsOnWhatsApp([]string{sender})
-				if err != nil {
-					fmt.Println(err, "ERRO IS ONWHATSAPP pgm")
-					return
-				}
-				response := validNumber[0]
-				senderJID := response.JID
-				var msg_quote *waE2E.Message = &waE2E.Message{
-					ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-						Text: proto.String(messageQuoted),
-					},
-				}
-				message.Conversation = nil
-				message.ExtendedTextMessage = &waE2E.ExtendedTextMessage{
-					Text: proto.String(text),
-					ContextInfo: &waE2E.ContextInfo{
-						StanzaID:      &messageID,
-						Participant:   proto.String(senderJID.String()),
-						QuotedMessage: msg_quote,
-					},
-				}
-			}
-			if editedIDMessage != "" {
-				message = client.BuildEdit(JID, editedIDMessage, message)
-			}
-			if paymentMessage != nil {
-			}
-			msg.MessageInfo = message
-			currentClientID = msg.ClientId
-			client = msg.Client
-			processarMensagem(msg, sendInfo.UUID)
-			if currentCount >= int32(len(sendInfo.Result)) {
-				if documento_padrao != nil {
-					path := documento_padraoPath
-					if err := os.Remove(path); err != nil {
-						fmt.Printf("Erro ao remover o arquivo %s: %v\n", path, err)
-					}
-				}
-
-			}
-		}(i, sendInfoMain, documento_padrao_CAMINHO_INICIAL)
-		fmt.Println(manyResults, i+1)
-		if manyResults > i+1 {
-			nextItem := sendInfoMain.Result[i+1]
-			if nextItem != nil {
-				totalDelay := time.Duration(modules.RandomBetween(30, 45)) * time.Second
-				text := nextItem["text"].(string)
-				textLen := float64(len(text)) * 0.05
-				if textLen > 20 {
-					textLen = 20
-				}
-				fmt.Println("⏳ Delay por letra:", textLen, "s")
-				totalDelay = time.Duration((textLen + totalDelay.Seconds()) * float64(time.Second))
-				fmt.Println("⏳ Tempo esperado para enviar a próxima mensagem:", totalDelay, "segundos...")
-				modules.LogMemUsage()
-				time.Sleep(totalDelay) // é o que separa as mensagens de lote
-			}
-		}
-
-	}
-	wg.Wait()
-
-}
 func autoCleanup() {
 	// _15minTicker := time.NewTicker(2 * time.Minute)
 	// for range _15minTicker.C {
@@ -1602,6 +1319,10 @@ func autoCleanup() {
 	// 	modules.LogMemUsage()
 	// 	// modules.SearchNearMessages()
 	// }
+	_20minticker := time.NewTicker(20 * time.Minute)
+	for range _20minticker.C {
+		modules.DeleteOlderMessages()
+	}
 	ticker := time.NewTicker(1 * time.Hour)
 	for range ticker.C {
 		clientsMutex.Lock()
@@ -1611,10 +1332,6 @@ func autoCleanup() {
 			}
 		}
 		clientsMutex.Unlock()
-	}
-	_30minticker := time.NewTicker(1 * time.Hour)
-	for range _30minticker.C {
-		modules.CheckCloseSchedules()
 	}
 
 }
@@ -1704,7 +1421,6 @@ func cleanUploads() { // limpar arquivos do uploads
 		if err != nil {
 		}
 	}
-	return
 	// RemoveContents("./uploads/")
 }
 func GetContents(dir string) ([]string, error) {
@@ -1747,12 +1463,8 @@ func main() {
 	// SOFT CAP 10MB : 3.57MB - 3.59MB - 4.48MB
 	// simulateEvents("teste_disparo_shark", moods["active"])
 	// found, number := modules.FindNumberInCache("5537984103402", "teste_disparo_shark")
-	modules.InitMessagesQueue(modules.BasicActions{
-		GetClient: getClient, CheckNumberWithRetry: checkNumberWithRetry, TryConnecting: tryConnecting,
-	})
 
-	modules.RemoveExpiredCaches()
-	cleanUploads()
+	go cleanUploads()
 	go autoCleanup()
 
 	signalCh := make(chan os.Signal, 1)
@@ -1767,8 +1479,15 @@ func main() {
 			// Cleanup de emergência
 		}
 	}()
-	autoConnection()
+	go func() {
+		autoConnection()
+		modules.DeleteOlderMessages()
+		modules.InitMessagesQueue(modules.BasicActions{
+			GetClient: getClient, CheckNumberWithRetry: checkNumberWithRetry, TryConnecting: tryConnecting,
+		})
+	}()
 
+	modules.RemoveExpiredCaches()
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Erro ao carregar o arquivo .env")
@@ -1930,7 +1649,6 @@ func main() {
 		if UUID == "" {
 			UUID = clientId + uuid.New().String()
 		}
-		fmt.Println(slug_disparo)
 		fmt.Printf("------------------ %s Send Files Request ------------------------ \n\n", clientId)
 
 		client := getClient(clientId)
@@ -1950,7 +1668,6 @@ func main() {
 		}
 		noTimeout := utils.CopyString(c.FormValue("noTimeout"))
 		sendContact := utils.CopyString(c.FormValue("contact"))
-		fmt.Println("Contato recebido ! : ", c.FormValue(sendContact))
 		infoObjects := utils.CopyString(c.FormValue("infoObjects"))
 		dataProgramada := utils.CopyString(c.FormValue("dataProgramada"))
 		timestamp := time.Now().Unix()
@@ -1967,7 +1684,6 @@ func main() {
 			timestamp = t.Add(3 * time.Hour).Unix()
 
 		}
-		fmt.Println("Timestamp", timestamp)
 		documento_padrao_filePath := ""
 		// files_filePath := ""
 		var documento_padrao *multipart.FileHeader = nil
@@ -1981,7 +1697,7 @@ func main() {
 				fmt.Printf("Erro ao salvar o arquivo: %v", err)
 			}
 			if strings.Contains(savePath, ".webp") {
-				errorconvert := convertWebPToJPEG(savePath, strings.Replace(savePath, ".webp", ".jpeg", -1))
+				errorconvert := modules.ConvertWebPToJPEG(savePath, strings.Replace(savePath, ".webp", ".jpeg", -1))
 				if errorconvert == nil {
 					defer os.Remove("./uploads/" + clientId + documento_padrao.Filename)
 					documento_padrao.Filename = strings.Replace(documento_padrao.Filename, ".webp", ".jpeg", -1)
@@ -1990,14 +1706,13 @@ func main() {
 			}
 			documento_padrao_filePath = savePath
 		}
-		fmt.Println(infoObjects)
 		var resultStructed []modules.MessageIndividual
 		// Deserializando o JSON para o map
 		err = json.Unmarshal([]byte(infoObjects), &resultStructed)
 		if err != nil {
 			fmt.Printf("Erro ao converter JSON structed: %v", err)
 		}
-		fmt.Println(resultStructed)
+		// fmt.Println(resultStructed)
 		sendContactStructed := modules.Send_contact{}
 		if sendContact != "" {
 			err = json.Unmarshal([]byte(sendContact), &sendContactStructed)
@@ -2020,8 +1735,8 @@ func main() {
 			SendContact:    &sendContactStructed,
 			NoTimeout:      noTimeout,
 			DataProgramada: timestamp, IdBatch: UUID}
-		sendMessageInfoInJSON, _ := json.MarshalIndent(sendMessageInfo, " ", "")
-		fmt.Println("[ENVIO_MENSAGEM] -> ", string(sendMessageInfoInJSON))
+		// sendMessageInfoInJSON, _ := json.MarshalIndent(sendMessageInfo, " ", "")
+		// fmt.Println("[ENVIO_MENSAGEM] -> ", string(sendMessageInfoInJSON))
 		go modules.AddMensagemPendente(sendMessageInfo)
 		if dataProgramada != "" {
 			return c.Status(200).JSON(fiber.Map{
@@ -2377,359 +2092,10 @@ func desconctarCliente(clientId string) bool {
 
 	return true
 }
-func convertWebPToJPEG(inputPath, outputPath string) error {
-	// Abre o arquivo WebP
-	file, err := os.Open(inputPath)
-	if err != nil {
-		fmt.Println("Erro abrindo a imagem:", err)
-		return err
-	}
-	defer file.Close()
-	// Decodifica a imagem WebP
-	img, _, err := image.Decode(file)
-	if err != nil {
-		fmt.Println("Erro ao decodificar imagem WebP:", err)
-		return err
-	}
-	// Cria o arquivo de saída JPEG
-	outFile, err := os.Create(outputPath)
-	if err != nil {
-		fmt.Println("Erro criando arquivo de saída:", err)
-		return err
-	}
-	defer outFile.Close()
-	// Codifica a imagem como JPEG e salva no arquivo
-	err = jpeg.Encode(outFile, img, &jpeg.Options{Quality: 80})
-	if err != nil {
-		fmt.Println("Erro ao converter para JPEG:", err)
-		return err
-	}
-	return nil
-}
 
 var bufferPool = sync.Pool{
 	New: func() interface{} {
 		s := make([]byte, 0, 2<<20) // 2mb
 		return &s                   // Retorna PONTEIRO para slice
 	},
-}
-
-func converterParaOgg(inputPath string) (string, error) {
-	ext := strings.ToLower(filepath.Ext(inputPath))
-	if ext != ".mp3" && ext != ".wav" && ext != ".m4a" && ext != ".aac" {
-		// Não precisa converter
-		return inputPath, nil
-	}
-
-	base := strings.TrimSuffix(filepath.Base(inputPath), ext)
-	dir := filepath.Dir(inputPath)
-	outputPath := filepath.Join(dir, base+".ogg")
-	cmd := exec.Command(
-		"ffmpeg",
-		"-loglevel", "quiet",
-		"-y",
-		"-i", inputPath,
-		"-af", "asetpts=PTS-STARTPTS", // 👈 Zera timestamps de áudio
-		"-c:a", "libopus",
-		"-b:a", "16k",
-		"-vbr", "on",
-		"-compression_level", "10",
-		"-ar", "16000",
-		"-ac", "1",
-		"-f", "ogg",
-		"-avoid_negative_ts", "make_zero",
-		outputPath,
-	)
-
-	if err := cmd.Run(); err != nil {
-		return inputPath, fmt.Errorf("ffmpeg failed: %w", err)
-	}
-
-	os.Remove(inputPath)
-
-	return outputPath, nil
-}
-func getAudioDuration(path string) (float64, error) {
-	cmd := exec.Command(
-		"ffprobe",
-		"-v", "quiet",
-		"-print_format", "json",
-		"-show_entries", "format=duration",
-		"-i", path,
-	)
-
-	var out bytes.Buffer
-	cmd.Stdout = &out
-
-	if err := cmd.Run(); err != nil {
-		return 0, fmt.Errorf("erro ao executar ffprobe: %w", err)
-	}
-
-	var result struct {
-		Format struct {
-			Duration string `json:"duration"`
-		} `json:"format"`
-	}
-
-	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
-		return 0, fmt.Errorf("erro ao interpretar resposta do ffprobe: %w", err)
-	}
-
-	seconds, err := strconv.ParseFloat(result.Format.Duration, 64)
-	if err != nil {
-		return 0, fmt.Errorf("erro ao converter duração: %w", err)
-	}
-
-	return seconds, nil
-}
-func convertPngToJpeg(pngPath string) (string, error) {
-	f, err := os.Open(pngPath)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-
-	img, err := png.Decode(f)
-	if err != nil {
-		return "", err
-	}
-
-	// Prepare output image (RGB)
-	bounds := img.Bounds()
-	outImg := image.NewRGBA(bounds)
-
-	// Fill background with white
-	draw.Draw(outImg, bounds, &image.Uniform{C: color.White}, image.Point{}, draw.Src)
-	// Draw original PNG on top
-	draw.Draw(outImg, bounds, img, bounds.Min, draw.Over)
-
-	outPath := pngPath[:len(pngPath)-len(".png")] + ".jpg"
-	outFile, err := os.Create(outPath)
-	if err != nil {
-		return "", err
-	}
-	defer outFile.Close()
-
-	opt := jpeg.Options{Quality: 90}
-	if err := jpeg.Encode(outFile, outImg, &opt); err != nil {
-		return "", err
-	}
-	os.Remove(pngPath)
-
-	return outPath, nil
-}
-func prepararMensagemArquivo(text string, message *waE2E.Message, chosedFile string, client *whatsmeow.Client, clientId string, msg modules.SingleMessageInfo, UUID string) (*waE2E.Message, string) {
-	// Abrindo o arquivo
-	var mensagem_ *waE2E.Message
-	if message != nil {
-		mensagem_ = proto.Clone(message).(*waE2E.Message)
-	} else {
-		mensagem_ = &waE2E.Message{}
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("🔥 panic in prepararMensagemArquivo: %v", r)
-			debug.PrintStack()
-		}
-	}()
-	if filepath.Ext(chosedFile) == ".mp3" || filepath.Ext(chosedFile) == ".ogg" {
-
-		var err error
-		chosedFile, err = converterParaOgg(chosedFile)
-		if err != nil {
-			log.Println("Falha ao converter:", err)
-			return mensagem_, chosedFile
-		}
-
-	}
-	if filepath.Ext(chosedFile) == ".png" {
-		fmt.Println("📁🔄 -> Convertendo arquivo PNG para JPGEG")
-		newFile, err := convertPngToJpeg(chosedFile)
-		if err != nil {
-			log.Println("Failed to convert PNG to JPEG:", err)
-			return mensagem_, chosedFile
-
-		}
-		chosedFile = newFile
-	}
-	file, err := os.Open(chosedFile)
-	if err != nil {
-		fmt.Printf("Erro ao abrir o arquivo: %v", err)
-		return mensagem_, chosedFile
-
-	}
-	defer file.Close()
-	// Detectando o tipo MIME
-	bufPtr := bufferPool.Get().(*[]byte)
-	var buf []byte // outer buf variable
-
-	if bufPtr != nil {
-		buf = *bufPtr
-		defer func() {
-			*bufPtr = buf[:0]
-			bufferPool.Put(bufPtr)
-		}()
-	} else {
-		buf = make([]byte, 0) // fallback empty slice
-	}
-	defer func() {
-		*bufPtr = buf[:0]
-		bufferPool.Put(bufPtr)
-	}()
-	fileInfo, err := file.Stat()
-	if err != nil {
-		log.Printf("failed to stat file %s: %v", chosedFile, err)
-		return mensagem_, chosedFile
-	}
-	fileSize := fileInfo.Size()
-	if cap(buf) < int(fileSize) {
-		buf = make([]byte, fileSize)
-	} else {
-		// Reutiliza capacidade existente
-		buf = buf[:fileSize]
-	}
-	_, err = io.ReadFull(file, buf)
-	if err != nil {
-		fmt.Printf("Erro ao ler o arquivo: %v", err)
-		return mensagem_, chosedFile
-
-	}
-	nomeArquivo := filepath.Base(chosedFile)
-	nomeArquivo = strings.ReplaceAll(nomeArquivo, clientId, "")
-	limit := 512
-	if len(buf) < limit {
-		limit = len(buf)
-	}
-	kind, err := filetype.Match(buf[:limit])
-	if err != nil {
-		fmt.Printf("Erro ao detectar tipo do arquivo: %v", err)
-		return mensagem_, ""
-	}
-	if kind == filetype.Unknown {
-		fmt.Println("Tipo de arquivo desconhecido")
-	}
-	mimeType := ""
-	ext := strings.ToLower(filepath.Ext(nomeArquivo))
-	switch ext {
-	case ".jpg", ".jpeg":
-		mimeType = "image/jpeg"
-	case ".png":
-		mimeType = "image/png"
-	case ".webp":
-		mimeType = "image/webp"
-	case ".mp3":
-		mimeType = "audio/mpeg"
-	case ".ogg":
-		mimeType = "audio/ogg; codecs=opus" // VERY important for iOS
-	default:
-		mimeType = kind.MIME.Value // fallback
-	}
-	fmt.Println("📁 O arquivo é um :", mimeType, " com final ", filepath.Ext(nomeArquivo))
-
-	mensagem_.ExtendedTextMessage = nil
-	semExtensao := strings.TrimSuffix(nomeArquivo, filepath.Ext(nomeArquivo))
-	if filetype.IsAudio(buf) || filepath.Ext(nomeArquivo) == ".mp3" {
-		fmt.Println("REsultado ogg", chosedFile)
-		mimeType = "audio/ogg; codecs=opus"
-		fmt.Println("Arquivo é um áudio")
-		resp, err := client.Upload(context.Background(), buf, whatsmeow.MediaAudio)
-		if err != nil {
-			fmt.Printf("Erro ao fazer upload da mídia: %v", err)
-		}
-		duration, err := getAudioDuration(chosedFile)
-		if err != nil {
-			log.Println("Erro ao pegar duração:", err)
-			duration = 0
-		}
-		imageMsg := &waE2E.AudioMessage{
-			Mimetype:          proto.String(mimeType),
-			PTT:               proto.Bool(true),
-			URL:               &resp.URL,
-			DirectPath:        &resp.DirectPath,
-			MediaKey:          resp.MediaKey,
-			Seconds:           proto.Uint32(uint32(duration)),
-			MediaKeyTimestamp: proto.Int64(time.Now().Unix()),
-			FileEncSHA256:     resp.FileEncSHA256,
-			FileSHA256:        resp.FileSHA256,
-			FileLength:        proto.Uint64(resp.FileLength),
-		}
-
-		if text != "" {
-			if mensagem_.ExtendedTextMessage == nil {
-				mensagem_.ExtendedTextMessage = &waE2E.ExtendedTextMessage{}
-			}
-			mensagem_.ExtendedTextMessage.Text = proto.String(text)
-			msg.MessageInfo = mensagem_
-			processarMensagem(msg, UUID)
-		}
-		mensagem_.ExtendedTextMessage = nil
-		mensagem_.AudioMessage = imageMsg
-
-	} else if filetype.IsImage(buf) {
-		resp, err := client.Upload(context.Background(), buf, whatsmeow.MediaImage)
-		if err != nil {
-			fmt.Printf("Erro ao fazer upload da mídia: %v", err)
-		}
-		fmt.Println("O arquivo é uma imagem válida.")
-		imageMsg := &waE2E.ImageMessage{
-			Caption:           proto.String(text),
-			Mimetype:          proto.String(mimeType),
-			URL:               &resp.URL,
-			DirectPath:        &resp.DirectPath,
-			MediaKey:          resp.MediaKey,
-			FileEncSHA256:     resp.FileEncSHA256,
-			FileSHA256:        resp.FileSHA256,
-			FileLength:        &resp.FileLength,
-			MediaKeyTimestamp: proto.Int64(time.Now().Unix()),
-		}
-		mensagem_.ImageMessage = imageMsg
-		mensagem_.ExtendedTextMessage = nil
-	} else if filetype.IsVideo(buf) {
-		resp, err := client.Upload(context.Background(), buf, whatsmeow.MediaVideo)
-		if err != nil {
-			fmt.Printf("Erro ao fazer upload da mídia: %v", err)
-		}
-		imageMsg := &waE2E.VideoMessage{
-			Caption:           proto.String(text),
-			Mimetype:          proto.String(mimeType),
-			URL:               &resp.URL,
-			DirectPath:        &resp.DirectPath,
-			MediaKey:          resp.MediaKey,
-			FileEncSHA256:     resp.FileEncSHA256,
-			FileSHA256:        resp.FileSHA256,
-			FileLength:        &resp.FileLength,
-			GifPlayback:       proto.Bool(false),
-			MediaKeyTimestamp: proto.Int64(time.Now().Unix()),
-
-			//JPEGThumbnail: thumbnailBuf.Bytes(), // removed for this example
-		}
-		mensagem_.VideoMessage = imageMsg
-	} else {
-		resp, err := client.Upload(context.Background(), buf, whatsmeow.MediaDocument)
-		if err != nil {
-			fmt.Printf("Erro ao fazer upload da mídia: %v", err)
-		}
-		var isDocx bool = strings.Contains(nomeArquivo, ".docx")
-		if isDocx {
-			mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-		}
-		var isXlsx bool = strings.Contains(nomeArquivo, ".xlsx")
-		if isXlsx {
-			mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-		}
-		documentMsg := &waE2E.DocumentMessage{
-			Title:         proto.String(semExtensao),
-			Caption:       proto.String(text),
-			Mimetype:      proto.String(mimeType),
-			URL:           &resp.URL,
-			DirectPath:    &resp.DirectPath,
-			MediaKey:      resp.MediaKey,
-			FileEncSHA256: resp.FileEncSHA256,
-			FileSHA256:    resp.FileSHA256,
-			FileLength:    &resp.FileLength,
-		}
-		mensagem_.DocumentMessage = documentMsg
-	}
-	fmt.Println(mensagem_)
-	return mensagem_, chosedFile
 }

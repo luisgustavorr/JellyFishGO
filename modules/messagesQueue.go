@@ -65,19 +65,19 @@ type MessageIndividual struct {
 	Edited_id_message string          `json:"editedIDMessage"`
 	Send_contact      *Send_contact   `json:"sendContact,omitempty"`
 	Documento_padrao  string          `json:"documento_padrao"`
+	Attempts          int32           `json:"attempts"`
 }
 
 var dbMensagensPendentes *Database
-var dbMutex sync.Mutex
 var actions BasicActions
-var urlSendMessageEdpoint = ""
+var urlSendMessageEdpoint = map[string]string{}
 
 // Worker pool and poller configuration
 var (
 	jobQueue             chan string
 	pollStop             chan struct{}
 	startPoolOnce        sync.Once
-	workerCountDefault   = 32
+	workerCountDefault   = 50
 	pollIntervalDefault  = 200 * time.Millisecond
 	pollBatchSizeDefault = 200
 )
@@ -121,6 +121,7 @@ type Statements struct {
 	GetPendingByUUID    *sql.Stmt
 	DeletePendingByUUID *sql.Stmt
 	InsertUUID          *sql.Stmt
+	selectPendingStmt   *sql.Stmt
 }
 
 type Database struct {
@@ -140,9 +141,29 @@ func connectToMessagesQueueDB() *Database {
 	}
 	selectStmt, err := db.Prepare(`
 		SELECT clientId, text, number, documento_padrao, quoted_message, 
-		       edited_id_message, focus, id_grupo, send_contact
+		       edited_id_message, focus, id_grupo, send_contact,attempts
 		FROM pendingMessages
 		WHERE uuid = $1 LIMIT 1`)
+	if err != nil {
+		log.Fatal(err)
+
+	}
+	selectPendingStmt, err := db.Prepare(`WITH cte AS (
+  SELECT uuid
+  FROM pendingMessages
+  WHERE data_desejada <= $1
+    AND agendada = false
+    AND indev = $2
+    AND attempts < 3
+    AND should_try_again = true
+  ORDER BY data_desejada ASC
+  LIMIT $3
+)
+UPDATE pendingMessages p
+SET agendada = true
+FROM cte
+WHERE p.uuid = cte.uuid
+RETURNING p.uuid;`)
 	if err != nil {
 		log.Fatal(err)
 
@@ -150,9 +171,9 @@ func connectToMessagesQueueDB() *Database {
 	insertStmt, err := db.Prepare(`
 	INSERT INTO pendingMessages (
 		uuid, idBatch, clientId, text, number, data_desejada, documento_padrao, 
-		quoted_message, edited_id_message, focus, id_grupo, send_contact,indev
+		quoted_message, edited_id_message, focus, id_grupo, send_contact,indev,should_try_again,agendada,attempts
 	)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,$13)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,$13,true,false,0)
 	ON CONFLICT (uuid) DO UPDATE SET
 		idBatch = EXCLUDED.idBatch,
 		clientId = EXCLUDED.clientId,
@@ -165,7 +186,10 @@ func connectToMessagesQueueDB() *Database {
 		focus = EXCLUDED.focus,
 		id_grupo = EXCLUDED.id_grupo,
 		send_contact = EXCLUDED.send_contact,
-		indev = EXCLUDED.indev;
+		indev = EXCLUDED.indev,
+		should_try_again = EXCLUDED.should_try_again,
+		agendada = EXCLUDED.agendada,
+		attempts = EXCLUDED.attempts;
 `)
 	if err != nil {
 		log.Fatal("Erro preparando insertStmt:", err)
@@ -185,12 +209,12 @@ func connectToMessagesQueueDB() *Database {
 	dbMensagensPendentes.Stmts.GetPendingByUUID = selectStmt
 	dbMensagensPendentes.Stmts.DeletePendingByUUID = deleteStmt
 	dbMensagensPendentes.Stmts.InsertUUID = insertStmt
+	dbMensagensPendentes.Stmts.selectPendingStmt = selectPendingStmt
 	dbMensagensPendentes.DB = db
 	return dbMensagensPendentes
 }
 func insertMessage(clientId string, idBatch string, idMessage string, msgInfo MessageIndividual, data_desejada int64, send_contact *Send_contact) {
 	db := connectToMessagesQueueDB()
-
 	jsonStringOfQuotedMessage, err := json.Marshal(msgInfo.Quoted_message)
 	jsonStringOfSendContact := []byte("")
 	if send_contact != nil {
@@ -226,11 +250,10 @@ func AddMensagemPendente(sendInfo SendMessageInfo) {
 			fmt.Println("⏳ Tempo esperado para enviar a próxima mensagem:", totalDelay, "segundos...")
 			LogMemUsage()
 			customDelay = int(totalDelay)
+			now += int64(customDelay)
 		}
-		now += int64(customDelay)
 		// fmt.Println("Adicionando mensagem", v.Documento_padrao, i, " Batch :", sendInfo.IdBatch, "UUID:", id_message)
 	}
-	triggerImmediatePoll()
 	// SearchNearMessages()
 }
 func InitMessagesQueue(basicActions BasicActions) {
@@ -350,7 +373,6 @@ func StartMessageQueue(numWorkers int, interval time.Duration, batchSize int) {
 	for i := 0; i < numWorkers; i++ {
 		go func() {
 			for uuid := range jobQueue {
-				fmt.Println("aqui")
 				enviarMensagem(uuid)
 			}
 		}()
@@ -376,29 +398,38 @@ func StartMessageQueue(numWorkers int, interval time.Duration, batchSize int) {
 func triggerImmediatePoll() {
 	go pollDueMessages(pollBatchSizeDefault)
 }
-func CancelMessages(id string, batch bool) error {
+func DeleteOlderMessages() error {
 	db := connectToMessagesQueueDB()
-
-	_, err := db.DB.Exec(`UPDATE pendingMessages
-  SET agendada = true
-  WHERE data_desejada <= $1
-  AND agendada = false
-  AND indev = $2
-  RETURNING uuid`, time.Now().Unix(), Desenvolvimento)
+	timestampPassado := time.Now().Add(-20 * time.Minute).Unix()
+	fmt.Println(timestampPassado)
+	_, err := db.DB.Exec(`DELETE from pendingMessages WHERE data_desejada <= $1 and agendada = true `, timestampPassado)
 	if err != nil {
 		return err
 	}
+	return nil
+}
+func CancelMessages(id string, batch bool) error {
+	if batch {
+		db := connectToMessagesQueueDB()
+		_, err := db.DB.Exec(`delete from pendingMessages WHERE idbatch = $1`, id)
+		if err != nil {
+			return err
+		}
+	} else {
+		db := connectToMessagesQueueDB()
+		_, err := db.DB.Exec(`delete from pendingMessages WHERE uuid = $1`, id)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
 // pollDueMessages claims due messages and enqueues their UUIDs for workers.
 func pollDueMessages(batchSize int) {
 	db := connectToMessagesQueueDB()
-	rows, err := db.DB.Query(`UPDATE pendingMessages
-  SET agendada = true
-  WHERE data_desejada <= $1
-  AND agendada = false AND indev = $2
-  RETURNING uuid`, time.Now().Unix(), Desenvolvimento)
+	rows, err := db.Stmts.selectPendingStmt.Query(time.Now().Unix(), Desenvolvimento, batchSize)
 	if err != nil {
 		log.Println("Erro ao buscar mensagens devidas:", err)
 		return
@@ -413,29 +444,42 @@ func pollDueMessages(batchSize int) {
 		}
 		jobQueue <- u
 		count++
-		fmt.Println("Adicionando mensagem")
 
 		if count >= batchSize {
 			break
 		}
 	}
 }
-func updateLastError(uuid string, lastError string) error {
+func updateLastError(uuid string, shouldTryAgain bool, attempts int32, lastError string) error {
+	shouldTryAgain = true
 	db := connectToMessagesQueueDB()
-	_, err := db.DB.Exec(`UPDATE pendingMessages
-  SET last_error = $1 WHERE uuid= $2`, lastError, uuid)
-	if err != nil {
-		return err
+	fmt.Printf("[ERROR_STATUS] -> Atualizando status de erro da mensagem %s, com %d tentativas, deve tentar novamente ? %v \n", uuid, attempts, shouldTryAgain)
+	backoff := 30 * attempts
+	if attempts < 3 {
+		_, err := db.DB.Exec(`UPDATE pendingMessages
+  SET last_error = $1,status='Error, Will Try Again',attempts = attempts +1 ,data_desejada = data_desejada+$2,agendada = false,should_try_again=$3 WHERE uuid= $4`, lastError, backoff, shouldTryAgain, uuid)
+		if err != nil {
+			fmt.Println(err)
+			return err
+		}
+	} else {
+		_, err := db.DB.Exec(`UPDATE pendingMessages
+  SET last_error = $1,status='Final Error, Will be deleted',attempts = attempts +1,should_try_again=$2 WHERE uuid= $3`, lastError, false, uuid)
+		if err != nil {
+			fmt.Println(err)
+			return err
+		}
 	}
+
 	return nil
 }
 func enviarMensagem(uuid string) {
-	fmt.Println("Tentando enviar mensafem", uuid)
+
 	db := connectToMessagesQueueDB()
 	mainCtx := context.Background()
-	ctx := context.Background()
+	// ctx := context.Background()
 
-	ctxWT, cancel := context.WithTimeout(mainCtx, 10000*time.Millisecond)
+	ctxWT, cancel := context.WithTimeout(mainCtx, 15000*time.Millisecond)
 	defer cancel()
 	// rows := db.DB.QueryRowContext(ctx,
 	// 	`SELECT clientId, text, number,documento_padrao,quoted_message,edited_id_message,focus,id_grupo,send_contact  FROM pendingMessages
@@ -455,6 +499,7 @@ func enviarMensagem(uuid string) {
 		&msgInfo.Focus,
 		&msgInfo.Id_grupo,
 		&msgInfo.Send_contact,
+		&msgInfo.Attempts,
 	)
 
 	if err != nil {
@@ -465,7 +510,7 @@ func enviarMensagem(uuid string) {
 		log.Println("Scan error:", err)
 		return
 	}
-	fmt.Println("Agora já recupero a mensagem : ", msgInfo)
+
 	msgInfo.Number = sanitizeNumber(msgInfo.Number)
 	client := actions.GetClient(clientId)
 	if client == nil {
@@ -509,12 +554,12 @@ func enviarMensagem(uuid string) {
 		if err != nil {
 			fmt.Println(err, "ERRO ISONWHATSAPP")
 			fmt.Println("⛔ -> Numero inválido Erro. ClientId: ", clientId, " | Numero: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo)
-			updateLastError(uuid, fmt.Sprintln("⛔ -> Numero inválido Erro. ClientId: ", clientId, " | Numero: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo))
+			updateLastError(uuid, true, msgInfo.Attempts, fmt.Sprintln("⛔ -> Numero inválido Erro: ", err))
 			return
 		}
 		if len(validNumber) == 0 {
 			fmt.Println("⛔ -> Numero inválido. ClientId: ", clientId, " | Numero: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo)
-			updateLastError(uuid, fmt.Sprintln("⛔ -> Numero inválido. ClientId: ", clientId, " | Numero: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo))
+			updateLastError(uuid, false, msgInfo.Attempts, fmt.Sprintln("⛔ -> Numero inválido. ClientId: ", clientId, " | Numero: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo))
 
 			return
 		}
@@ -523,7 +568,7 @@ func enviarMensagem(uuid string) {
 		IsIn := response.IsIn
 		if !IsIn {
 			fmt.Println("⛔ -> Numero not In WhatsApp. ClientId: ", clientId, " | Numero: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo)
-			updateLastError(uuid, fmt.Sprintln("⛔ -> Numero not In WhatsApp. ClientId: ", clientId, " | Numero: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo))
+			updateLastError(uuid, false, msgInfo.Attempts, fmt.Sprintln("⛔ -> Numero not In WhatsApp. ClientId: ", clientId, " | Numero: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo))
 
 			return
 		}
@@ -577,9 +622,9 @@ func enviarMensagem(uuid string) {
 			}
 		}
 	}
-	retornoEnvio, err := client.SendMessage(ctx, JID, message)
+	retornoEnvio, err := client.SendMessage(ctxWT, JID, message)
 	if err != nil {
-		updateLastError(uuid, fmt.Sprintln("Erro ao enviar mensagem 1°: ", err))
+		updateLastError(uuid, true, msgInfo.Attempts, fmt.Sprintln("Erro ao enviar mensagem 1°: ", err))
 
 		fmt.Println("Erro ao enviar mensagem", err)
 		return
@@ -588,13 +633,13 @@ func enviarMensagem(uuid string) {
 			os.Remove(newNameFile)
 		}
 		if extraMessage {
-			retornoEnvio2, err := client.SendMessage(ctx, JID, &waE2E.Message{
+			retornoEnvio2, err := client.SendMessage(ctxWT, JID, &waE2E.Message{
 				ExtendedTextMessage: &waE2E.ExtendedTextMessage{
 					Text: proto.String(msgInfo.Text),
 				},
 			})
 			if err != nil {
-				updateLastError(uuid, fmt.Sprintln("Erro ao enviar mensagem extra de texto° : ", err))
+				updateLastError(uuid, true, msgInfo.Attempts, fmt.Sprintln("Erro ao enviar mensagem extra de texto° : ", err))
 
 				fmt.Println("Erro ao enviar mensagem extra de texto", err)
 				return
@@ -613,16 +658,16 @@ func enviarMensagem(uuid string) {
 					"sender": strings.ReplaceAll(msgInfo.Number, "+", ""),
 				},
 			}
-			if urlSendMessageEdpoint == "" {
-				lastIndex := strings.LastIndex(clientId, "_")
-				sufixo := clientId[lastIndex+1:]
+			lastIndex := strings.LastIndex(clientId, "_")
+			sufixo := clientId[lastIndex+1:]
+			if urlSendMessageEdpoint[sufixo] == "" {
 				baseURL := strings.Split(MapOficial[sufixo], "chatbot")[0]
 				if strings.Contains(baseURL, "disparo") {
 					baseURL = strings.Split(MapOficial[sufixo], "disparo")[0]
 				}
-				urlSendMessageEdpoint = baseURL + "chatbot/chat/mensagens/novo-id/"
+				urlSendMessageEdpoint[sufixo] = baseURL + "chatbot/chat/mensagens/novo-id/"
 			}
-			SendToEndPoint(data, urlSendMessageEdpoint)
+			SendToEndPoint(data, urlSendMessageEdpoint[sufixo])
 		}
 
 	}
@@ -641,28 +686,26 @@ func enviarMensagem(uuid string) {
 			"sender": strings.ReplaceAll(msgInfo.Number, "+", ""),
 		},
 	}
-	if urlSendMessageEdpoint == "" {
-
-		lastIndex := strings.LastIndex(clientId, "_")
-		sufixo := clientId[lastIndex+1:]
+	lastIndex := strings.LastIndex(clientId, "_")
+	sufixo := clientId[lastIndex+1:]
+	if urlSendMessageEdpoint[sufixo] == "" {
 		baseURL := strings.Split(MapOficial[sufixo], "chatbot")[0]
 		if strings.Contains(baseURL, "disparo") {
 			baseURL = strings.Split(MapOficial[sufixo], "disparo")[0]
 		}
-		urlSendMessageEdpoint = baseURL + "chatbot/chat/mensagens/novo-id/"
+		urlSendMessageEdpoint[sufixo] = baseURL + "chatbot/chat/mensagens/novo-id/"
 	}
 
 	fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s, JID:%s] ENVIADA \n", retornoEnvio.ID, clientId, msgInfo.Text, msgInfo.Number, JID.User)
 	removeMensagemPendente(uuid)
 
-	SendToEndPoint(data, urlSendMessageEdpoint)
+	SendToEndPoint(data, urlSendMessageEdpoint[sufixo])
 
 	// SEMPRE
 	// fmt.Println("ENVIANDO MENSAGEM PEW PEW", clientId, msgInfo, JID, retornoEnvio)
 }
 
 func removeMensagemPendente(uuid string) {
-	fmt.Println("Removendo mensagem :", uuid)
 	db := connectToMessagesQueueDB()
 
 	_, err := db.Stmts.DeletePendingByUUID.Exec(uuid)
