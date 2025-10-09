@@ -30,7 +30,6 @@ func connectMysql() *sql.DB {
 		log.Println("failed to open MySQL:", err)
 
 	}
-
 	// Configure pooling
 	db.SetMaxOpenConns(20)           // max open connections
 	db.SetMaxIdleConns(10)           // max idle connections
@@ -75,6 +74,7 @@ func GetAvaiableServer(clientId string) (serverFound ProxysServers, found bool) 
 	return server, false
 }
 func updateActiveConns() {
+	return
 	if mysqlConnection == nil {
 		mysqlConnection = connectMysql()
 	}
@@ -99,6 +99,7 @@ WHERE EXISTS (
 	}
 }
 func addProxyToClientId(clientId string, proxyId int) bool {
+	return false
 	if mysqlConnection == nil {
 		mysqlConnection = connectMysql()
 	}
@@ -114,6 +115,8 @@ func addProxyToClientId(clientId string, proxyId int) bool {
 	return true
 }
 func RemoveProxyToClientId(clientId string) bool {
+	return false
+
 	if mysqlConnection == nil {
 		mysqlConnection = connectMysql()
 	}
@@ -130,6 +133,8 @@ func RemoveProxyToClientId(clientId string) bool {
 	return true
 }
 func GetServerByClientId(clientId string) (serverFound ProxysServers, found bool) {
+	return ProxysServers{}, false
+
 	if mysqlConnection == nil {
 		mysqlConnection = connectMysql()
 	}
