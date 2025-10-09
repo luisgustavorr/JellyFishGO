@@ -53,6 +53,7 @@ func LoadConfigInicial(dsn string) map[string]string {
 		log.Println(err)
 	}
 	defer db.Close()
+	fmt.Println("2")
 
 	if err := db.Ping(); err != nil {
 		log.Println(err)
@@ -64,6 +65,7 @@ func LoadConfigInicial(dsn string) map[string]string {
 	defer rows.Close()
 	mapProducao := map[string]string{}
 	mapDesenvolvimento := map[string]string{}
+	fmt.Println("1")
 	for rows.Next() {
 		var sufixo string
 		var link_oficial string
@@ -75,9 +77,13 @@ func LoadConfigInicial(dsn string) map[string]string {
 		mapProducao[sufixo] = link_oficial
 		mapDesenvolvimento[sufixo] = base_link_teste + link_teste
 	}
+	fmt.Println("5")
+
 	if err != nil {
 		log.Fatal("Erro ao carregar o arquivo .env")
 	}
+	fmt.Println("5")
+
 	fmt.Println("MODO DESENVOLVIMENTO", Desenvolvimento)
 	if Desenvolvimento {
 		return mapDesenvolvimento
