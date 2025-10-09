@@ -420,7 +420,15 @@ func pollDueMessages(batchSize int) {
 		}
 	}
 }
-
+func updateLastError(uuid string, lastError string) error {
+	db := connectToMessagesQueueDB()
+	_, err := db.DB.Exec(`UPDATE pendingMessages
+  SET last_error = $1 WHERE uuid= $2`, lastError, uuid)
+	if err != nil {
+		return err
+	}
+	return nil
+}
 func enviarMensagem(uuid string) {
 	fmt.Println("Tentando enviar mensafem", uuid)
 	db := connectToMessagesQueueDB()
@@ -501,10 +509,13 @@ func enviarMensagem(uuid string) {
 		if err != nil {
 			fmt.Println(err, "ERRO ISONWHATSAPP")
 			fmt.Println("⛔ -> Numero inválido Erro. ClientId: ", clientId, " | Numero: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo)
+			updateLastError(uuid, fmt.Sprintln("⛔ -> Numero inválido Erro. ClientId: ", clientId, " | Numero: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo))
 			return
 		}
 		if len(validNumber) == 0 {
 			fmt.Println("⛔ -> Numero inválido. ClientId: ", clientId, " | Numero: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo)
+			updateLastError(uuid, fmt.Sprintln("⛔ -> Numero inválido. ClientId: ", clientId, " | Numero: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo))
+
 			return
 		}
 		response := validNumber[0] // Acessa o primeiro item da slicet
@@ -512,6 +523,8 @@ func enviarMensagem(uuid string) {
 		IsIn := response.IsIn
 		if !IsIn {
 			fmt.Println("⛔ -> Numero not In WhatsApp. ClientId: ", clientId, " | Numero: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo)
+			updateLastError(uuid, fmt.Sprintln("⛔ -> Numero not In WhatsApp. ClientId: ", clientId, " | Numero: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo))
+
 			return
 		}
 	}
@@ -566,13 +579,13 @@ func enviarMensagem(uuid string) {
 	}
 	retornoEnvio, err := client.SendMessage(ctx, JID, message)
 	if err != nil {
+		updateLastError(uuid, fmt.Sprintln("Erro ao enviar mensagem 1°: ", err))
 
 		fmt.Println("Erro ao enviar mensagem", err)
 		return
 	} else {
 		if newNameFile != "" {
 			os.Remove(newNameFile)
-
 		}
 		if extraMessage {
 			retornoEnvio2, err := client.SendMessage(ctx, JID, &waE2E.Message{
@@ -581,6 +594,8 @@ func enviarMensagem(uuid string) {
 				},
 			})
 			if err != nil {
+				updateLastError(uuid, fmt.Sprintln("Erro ao enviar mensagem extra de texto° : ", err))
+
 				fmt.Println("Erro ao enviar mensagem extra de texto", err)
 				return
 			}

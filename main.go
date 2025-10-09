@@ -877,7 +877,7 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool
 	backoff = 1 * time.Second
 	for i := 0; i < maxRetries; i++ {
 		responses, err := isOnWhatsAppSafe(client, []string{numberWith9})
-		if err == nil && len(responses) > 0 {
+		if err == nil && len(responses) > 0 && responses[0].IsIn {
 			modules.SaveNumberInCache(number, responses[0].JID.User, responses[0].JID.Server, clientId)
 			return responses, nil
 		}
