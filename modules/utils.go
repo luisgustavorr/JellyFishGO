@@ -46,7 +46,13 @@ var Desenvolvimento = MODO_DESENVOLVIMENTO == "1"
 var MapOficial = LoadConfigInicial(os.Getenv("STRING_CONN"))
 
 func LoadConfigInicial(dsn string) map[string]string {
-	fmt.Println(dsn)
+	mapProducao := map[string]string{}
+	mapProducao["chat"] = "https://sharkbusiness.com.br/chatbot/conexao-whatsapp/status-conexao/"
+	mapProducao["shark"] = "https://sharkbusiness.com.br/disparo/conectar-whatsapp/checar-conexao/"
+	mapProducao["suporteshark"] = "https://sharkbusiness.com.br/dashboard/conectar-whatsapp/status-conexao/"
+	fmt.Println("retornou")
+
+	return mapProducao
 	// Conectar ao banco de dados
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
@@ -63,7 +69,7 @@ func LoadConfigInicial(dsn string) map[string]string {
 		log.Println(err)
 	}
 	defer rows.Close()
-	mapProducao := map[string]string{}
+
 	mapDesenvolvimento := map[string]string{}
 	fmt.Println("1")
 	for rows.Next() {
@@ -77,6 +83,8 @@ func LoadConfigInicial(dsn string) map[string]string {
 		mapProducao[sufixo] = link_oficial
 		mapDesenvolvimento[sufixo] = base_link_teste + link_teste
 	}
+	fmt.Println("map", mapProducao)
+
 	fmt.Println("5")
 
 	if err != nil {
