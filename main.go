@@ -2020,7 +2020,7 @@ func main() {
 			NoTimeout:      noTimeout,
 			DataProgramada: timestamp, IdBatch: UUID}
 		sendMessageInfoInJSON, _ := json.MarshalIndent(sendMessageInfo, " ", "")
-		fmt.Println("[ENVIO_MENSAGEM] -> ", sendMessageInfoInJSON)
+		fmt.Println("[ENVIO_MENSAGEM] -> ", string(sendMessageInfoInJSON))
 		go modules.AddMensagemPendente(sendMessageInfo)
 		if dataProgramada != "" {
 			return c.Status(200).JSON(fiber.Map{
