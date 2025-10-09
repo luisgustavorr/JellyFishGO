@@ -44,6 +44,7 @@ func connectMysql() *sql.DB {
 	return db
 }
 func GetAvaiableServer(clientId string) (serverFound ProxysServers, found bool) {
+	return ProxysServers{}, false
 
 	if mysqlConnection == nil {
 		mysqlConnection = connectMysql()

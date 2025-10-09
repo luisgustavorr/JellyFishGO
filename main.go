@@ -1704,6 +1704,7 @@ func cleanUploads() { // limpar arquivos do uploads
 		if err != nil {
 		}
 	}
+	return
 	// RemoveContents("./uploads/")
 }
 func GetContents(dir string) ([]string, error) {
