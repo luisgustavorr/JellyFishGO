@@ -21,6 +21,7 @@ type ProxysServers struct {
 }
 
 func connectMysql() *sql.DB {
+	return nil
 	if mysqlConnection != nil {
 		return mysqlConnection
 	}
