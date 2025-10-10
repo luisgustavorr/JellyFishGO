@@ -572,7 +572,6 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			if err != nil {
 				client.Log.Warnf("Failed to get LID for %s: %v", sender, err)
 			} else if !pn.IsEmpty() {
-				fmt.Println("SUCESSO PEGANDO COM LID", pn.User)
 				fullInfoMessage.Info.Sender = pn
 				senderNumber = getSender(pn.User)
 			}
@@ -688,7 +687,6 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	}
 	if profilePic != nil {
 		mensagem.PerfilImg = profilePic.URL
-		fmt.Println("PERFIL IMAGE :", mensagem.PerfilImg)
 	}
 	objetoMensagens := Envelope{Mensagem: mensagem}
 	if fromMe {
@@ -1005,13 +1003,6 @@ var (
 	stoppedQrCodeRequests sync.Map // clientId -> *int32 (0 = false, 1 = true)
 )
 
-func normalizeFileName(filename string) string {
-	normalizedFileName := filename
-	normalizedFileName = strings.ReplaceAll(normalizedFileName, " ", "_") // Substitui espaços por underline
-	normalizedFileName = strings.ReplaceAll(normalizedFileName, ":", "_")
-	return normalizedFileName
-}
-
 var (
 	seenMessagesQueue      = NewSeenQueue()
 	seenMessagesQueueMutex sync.Mutex
@@ -1032,7 +1023,7 @@ func sendSeenMessages(clientId string) {
 		baseURL = strings.Split(modules.MapOficial[sufixo], "disparo")[0]
 	}
 	fmt.Println("✅ -> MENSAGEM LIDA DO CLIENTE ", clientId)
-	modules.SendToEndPoint(data, baseURL+"chatbot/chat/mensagens/read/")
+	modules.SendGenericToEndPoint(data, baseURL+"chatbot/chat/mensagens/read/")
 	seenMessagesQueue.messageBuffer[clientId] = nil
 	if timer, exists := seenMessagesQueue.messageTimeout[clientId]; exists {
 		timer.Stop()
@@ -1335,80 +1326,6 @@ func autoCleanup() {
 	}
 
 }
-func processarMensagem(msg modules.SingleMessageInfo, uuid string) {
-	if err := enviarMensagem(msg, uuid); err != nil {
-		msg.Attempts++
-		msg.LastError = err
-		requeueMessage(msg, uuid) // Adicione a mensagem a uma fila de retentativas
-	}
-}
-func requeueMessage(msg modules.SingleMessageInfo, uuid string) {
-	newAttempts := atomic.AddInt32(&msg.Attempts, 1)
-	if newAttempts >= 3 {
-		println("Mensagem passou quantidade de tentativas máximas")
-		return
-	}
-	processarMensagem(msg, uuid)
-}
-
-var focusedMessagesKeysMutex sync.Mutex
-
-func adicionarFocusedMessage(key string) {
-	focusedMessagesKeysMutex.Lock()
-	defer focusedMessagesKeysMutex.Unlock()
-	focusedMessagesKeys = append(focusedMessagesKeys, key)
-}
-func enviarMensagem(msg modules.SingleMessageInfo, uuid string) error {
-	fmt.Println("Enviando mensagem")
-	clientId := msg.ClientId
-	client := msg.Client
-	clientById := getClient(clientId)
-	if clientById != nil && clientById != client {
-		client = clientById
-	}
-	JID := msg.JID
-	context := msg.Context
-	text := msg.Text
-	focus := msg.Focus
-	idMensagem := msg.IdMensagem
-	number := msg.Number
-	// inJSONMessageInfo, _ := json.MarshalIndent(msg.messageInfo, "", "  ")
-	// fmt.Println("ID Disparo :", uuid, " | JID ENVIADO ", JID, string(inJSONMessageInfo))
-
-	retornoEnvio, err := client.SendMessage(context, JID, msg.MessageInfo)
-	// fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s] ENVIADA \n", JID, clientId, text, number)
-	fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s, JID:%s] ENVIADA \n", retornoEnvio.ID, clientId, text, number, JID.User)
-	// removeMensagemPendente(uuid, text, number)
-	if err != nil {
-		fmt.Println("Erro ao enviar mensagem", err)
-	}
-	if focus != "" {
-		if focusedMessagesKeys == nil {
-			focusedMessagesKeys = []string{}
-		}
-		adicionarFocusedMessage(focus + "_" + retornoEnvio.ID)
-	}
-	fmt.Println("Id da mensagem q recebi : ", idMensagem)
-	if idMensagem != "" {
-		data := modules.GenericPayload{
-			Evento:   "MENSAGEM_ENVIADA",
-			ClientID: clientId,
-			Data: map[string]string{
-				"newID":  retornoEnvio.ID,
-				"oldID":  idMensagem,
-				"sender": strings.Replace(number, "+", "", -1),
-			},
-		}
-		lastIndex := strings.LastIndex(clientId, "_")
-		sufixo := clientId[lastIndex+1:]
-		baseURL := strings.Split(modules.MapOficial[sufixo], "chatbot")[0]
-		if strings.Contains(baseURL, "disparo") {
-			baseURL = strings.Split(modules.MapOficial[sufixo], "disparo")[0]
-		}
-		modules.SendToEndPoint(data, baseURL+"chatbot/chat/mensagens/novo-id/")
-	}
-	return nil
-}
 
 func cleanUploads() { // limpar arquivos do uploads
 	dir := "./uploads/"
@@ -1671,7 +1588,6 @@ func main() {
 		infoObjects := utils.CopyString(c.FormValue("infoObjects"))
 		dataProgramada := utils.CopyString(c.FormValue("dataProgramada"))
 		timestamp := time.Now().Unix()
-
 		if dataProgramada != "" {
 			layout := "2006-01-02 15:04:05"
 			t, err := time.Parse(layout, strings.TrimSpace(dataProgramada))
@@ -1850,7 +1766,7 @@ func main() {
 				if sendEmail != "" {
 					getOrSetEmails("INSERT INTO emails_conexoes ( `clientId`, `email`) VALUES (?,?);", []any{clientId, "luisgustavo20061@gmail.com"})
 				}
-				modules.SendToEndPoint(data, baseURL)
+				modules.SendGenericToEndPoint(data, baseURL)
 			case *events.Disconnected:
 				fmt.Printf("🔄 -> RECONECTANDO CLIENTE %s", clientId)
 			case *events.Receipt:
@@ -1909,7 +1825,7 @@ func main() {
 							lastIndex := strings.LastIndex(clientIdCopy, "_")
 							sufixo := clientIdCopy[lastIndex+1:]
 							baseURL := modules.MapOficial[sufixo]
-							modules.SendToEndPoint(data, baseURL)
+							modules.SendGenericToEndPoint(data, baseURL)
 
 						} else {
 							data := modules.GenericPayload{
@@ -1920,7 +1836,7 @@ func main() {
 							lastIndex := strings.LastIndex(clientIdCopy, "_")
 							sufixo := clientIdCopy[lastIndex+1:]
 							baseURL := modules.MapOficial[sufixo]
-							modules.SendToEndPoint(data, baseURL)
+							modules.SendGenericToEndPoint(data, baseURL)
 						}
 						currentRepeat := atomic.AddInt32(&counterPtr, int32(1))
 						if currentRepeat >= 5 {
@@ -1956,7 +1872,7 @@ func main() {
 				lastIndex := strings.LastIndex(clientId, "_")
 				sufixo := clientId[lastIndex+1:]
 				baseURL := modules.MapOficial[sufixo]
-				modules.SendToEndPoint(data, baseURL)
+				modules.SendGenericToEndPoint(data, baseURL)
 				return c.Status(200).JSON(fiber.Map{
 					"qrCode": dataURL,
 				})
@@ -1969,7 +1885,7 @@ func main() {
 				lastIndex := strings.LastIndex(clientId, "_")
 				sufixo := clientId[lastIndex+1:]
 				baseURL := modules.MapOficial[sufixo]
-				modules.SendToEndPoint(data, baseURL)
+				modules.SendGenericToEndPoint(data, baseURL)
 				return c.Status(200).JSON(fiber.Map{
 					"qrCode": firstQRCode.Code,
 				})
@@ -2073,7 +1989,7 @@ func desconctarCliente(clientId string) bool {
 	lastIndex := strings.LastIndex(clientId, "_")
 	sufixo := clientId[lastIndex+1:]
 	baseURL := modules.MapOficial[sufixo]
-	modules.SendToEndPoint(data, baseURL)
+	modules.SendGenericToEndPoint(data, baseURL)
 	defer modules.RemoveProxyToClientId(clientId)
 	if client == nil {
 		// Reconecta sob demanda

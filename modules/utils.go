@@ -486,7 +486,6 @@ func PrepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		}
 		mensagem_.DocumentMessage = documentMsg
 	}
-	fmt.Println(mensagem_)
 	return mensagem_, chosedFile, extraMessageNeeded
 }
 

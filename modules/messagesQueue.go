@@ -30,6 +30,13 @@ type GenericPayload struct {
 	Data     interface{} `json:"data,omitempty"`
 	Sender   int         `json:"sender,omitempty"`
 }
+type SentMessagePayload struct {
+	Evento   string          `json:"evento,omitempty"`
+	ClientID string          `json:"clientId,omitempty"`
+	Data     SentMessageData `json:"data,omitempty"`
+	Sender   int             `json:"sender,omitempty"`
+}
+
 type SendMessageInfo struct {
 	Result           []MessageIndividual   `json:"result"`
 	ClientIdLocal    string                `json:"clientIdLocal"`
@@ -40,7 +47,11 @@ type SendMessageInfo struct {
 	Documento_padrao string                `json:"-"`
 	files            *multipart.FileHeader `json:"-"`
 }
-
+type SentMessageData struct {
+	NewID  string `json:"newID"`
+	OldID  string `json:"oldID"`
+	Sender string `json:"sender"`
+}
 type BasicActions struct {
 	GetClient            func(clientId string) *whatsmeow.Client
 	CheckNumberWithRetry func(client *whatsmeow.Client, number string, de_grupo bool, clientId string) (resp []types.IsOnWhatsAppResponse, err error)
@@ -76,6 +87,7 @@ var urlSendMessageEdpoint = map[string]string{}
 var (
 	jobQueue             chan string
 	pollStop             chan struct{}
+	maxRetries           int32 = 3
 	startPoolOnce        sync.Once
 	workerCountDefault   = 50
 	pollIntervalDefault  = 200 * time.Millisecond
@@ -129,6 +141,12 @@ type Database struct {
 	Stmts Statements
 }
 
+var jsonBufferPool = sync.Pool{
+	New: func() any {
+		return new(bytes.Buffer)
+	},
+}
+
 func connectToMessagesQueueDB() *Database {
 	if dbMensagensPendentes != nil {
 		return dbMensagensPendentes
@@ -154,10 +172,10 @@ func connectToMessagesQueueDB() *Database {
   WHERE data_desejada <= $1
     AND agendada = false
     AND indev = $2
-    AND attempts < 3
+    AND attempts < $3
     AND should_try_again = true
   ORDER BY data_desejada ASC
-  LIMIT $3
+  LIMIT $4
 )
 UPDATE pendingMessages p
 SET agendada = true
@@ -215,11 +233,27 @@ RETURNING p.uuid;`)
 }
 func insertMessage(clientId string, idBatch string, idMessage string, msgInfo MessageIndividual, data_desejada int64, send_contact *Send_contact) {
 	db := connectToMessagesQueueDB()
-	jsonStringOfQuotedMessage, err := json.Marshal(msgInfo.Quoted_message)
-	jsonStringOfSendContact := []byte("")
-	if send_contact != nil {
-		jsonStringOfSendContact, _ = json.Marshal(send_contact)
+
+	buf := jsonBufferPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	defer jsonBufferPool.Put(buf)
+	var err error
+	jsonStringOfQuotedMessage := []byte("{}")
+	if msgInfo.Quoted_message != nil {
+		buf.Reset()
+		if err := json.NewEncoder(buf).Encode(msgInfo.Quoted_message); err == nil {
+			jsonStringOfQuotedMessage = buf.Bytes()
+		}
 	}
+
+	jsonStringOfSendContact := []byte("{}")
+	if send_contact != nil {
+		buf.Reset()
+		if err := json.NewEncoder(buf).Encode(send_contact); err == nil {
+			jsonStringOfSendContact = buf.Bytes()
+		}
+	}
+
 	_, err = db.Stmts.InsertUUID.Exec(idMessage, idBatch, clientId, msgInfo.Text, msgInfo.Number, data_desejada, msgInfo.Documento_padrao, string(jsonStringOfQuotedMessage), msgInfo.Edited_id_message, msgInfo.Focus, msgInfo.Id_grupo, string(jsonStringOfSendContact), Desenvolvimento)
 	if err != nil {
 		log.Println("Erro ao adicionar mensagem:", err)
@@ -331,22 +365,64 @@ func (d *Database) Close() {
 	d.Stmts.DeletePendingByUUID.Close()
 	d.DB.Close()
 }
-func SendToEndPoint(data GenericPayload, url string) {
-	jsonData, err := json.MarshalWithOption(data, json.DisableHTMLEscape())
-	if err != nil {
-		fmt.Printf("Erro ao criar marshal: %v", err)
+
+func SendToEndPoint(data SentMessagePayload, url string) {
+	buf := jsonBufferPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	defer jsonBufferPool.Put(buf)
+
+	enc := json.NewEncoder(buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(data); err != nil {
 		return
 	}
+
 	// fmt.Println("Data sendo envidada :", string(jsonData))
 	if url == "" {
 		fmt.Printf("URL %s vazia", url)
 		return
 	}
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", url, buf)
 	if err != nil {
 		fmt.Printf("Erro ao criar a requisição: %v", err)
 		return
 	}
+	defer buf.Reset()
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", os.Getenv("STRING_AUTH"))
+	req.Header.Set("X-CSRFToken", GetCSRFToken())
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("Erro ao enviar a requisição: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	fmt.Println(url)
+	fmt.Println("🌐 -> Resposta Status: [", resp.Status, "] | evento : ", data.Evento, " | clientId :", data.ClientID)
+}
+func SendGenericToEndPoint(data GenericPayload, url string) {
+	buf := jsonBufferPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	defer jsonBufferPool.Put(buf)
+
+	enc := json.NewEncoder(buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(data); err != nil {
+		return
+	}
+
+	// fmt.Println("Data sendo envidada :", string(jsonData))
+	if url == "" {
+		fmt.Printf("URL %s vazia", url)
+		return
+	}
+	req, err := http.NewRequest("POST", url, buf)
+	if err != nil {
+		fmt.Printf("Erro ao criar a requisição: %v", err)
+		return
+	}
+	defer buf.Reset()
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", os.Getenv("STRING_AUTH"))
 	req.Header.Set("X-CSRFToken", GetCSRFToken())
@@ -402,7 +478,7 @@ func DeleteOlderMessages() error {
 	db := connectToMessagesQueueDB()
 	timestampPassado := time.Now().Add(-20 * time.Minute).Unix()
 	fmt.Println(timestampPassado)
-	_, err := db.DB.Exec(`DELETE from pendingMessages WHERE data_desejada <= $1 and agendada = true `, timestampPassado)
+	_, err := db.DB.Exec(`DELETE from pendingMessages WHERE data_desejada <= $1 and attempts >= $2  and should_try_again = false`, timestampPassado, maxRetries)
 	if err != nil {
 		return err
 	}
@@ -429,7 +505,7 @@ func CancelMessages(id string, batch bool) error {
 // pollDueMessages claims due messages and enqueues their UUIDs for workers.
 func pollDueMessages(batchSize int) {
 	db := connectToMessagesQueueDB()
-	rows, err := db.Stmts.selectPendingStmt.Query(time.Now().Unix(), Desenvolvimento, batchSize)
+	rows, err := db.Stmts.selectPendingStmt.Query(time.Now().Unix(), Desenvolvimento, maxRetries, batchSize)
 	if err != nil {
 		log.Println("Erro ao buscar mensagens devidas:", err)
 		return
@@ -451,11 +527,10 @@ func pollDueMessages(batchSize int) {
 	}
 }
 func updateLastError(uuid string, shouldTryAgain bool, attempts int32, lastError string) error {
-	shouldTryAgain = true
 	db := connectToMessagesQueueDB()
 	fmt.Printf("[ERROR_STATUS] -> Atualizando status de erro da mensagem %s, com %d tentativas, deve tentar novamente ? %v \n", uuid, attempts, shouldTryAgain)
 	backoff := 30 * attempts
-	if attempts < 3 {
+	if attempts < maxRetries-1 {
 		_, err := db.DB.Exec(`UPDATE pendingMessages
   SET last_error = $1,status='Error, Will Try Again',attempts = attempts +1 ,data_desejada = data_desejada+$2,agendada = false,should_try_again=$3 WHERE uuid= $4`, lastError, backoff, shouldTryAgain, uuid)
 		if err != nil {
@@ -649,13 +724,13 @@ func enviarMensagem(uuid string) {
 				removeMensagemPendente(uuid)
 				return
 			}
-			data := GenericPayload{
+			data := SentMessagePayload{
 				Evento:   "MENSAGEM_ENVIADA",
 				ClientID: clientId,
-				Data: map[string]string{
-					"newID":  retornoEnvio2.ID,
-					"oldID":  uuid,
-					"sender": strings.ReplaceAll(msgInfo.Number, "+", ""),
+				Data: SentMessageData{
+					NewID:  retornoEnvio2.ID,
+					OldID:  uuid,
+					Sender: strings.ReplaceAll(msgInfo.Number, "+", ""),
 				},
 			}
 			lastIndex := strings.LastIndex(clientId, "_")
@@ -677,13 +752,13 @@ func enviarMensagem(uuid string) {
 
 		return
 	}
-	data := GenericPayload{
+	data := SentMessagePayload{
 		Evento:   "MENSAGEM_ENVIADA",
 		ClientID: clientId,
-		Data: map[string]string{
-			"newID":  retornoEnvio.ID,
-			"oldID":  uuid,
-			"sender": strings.ReplaceAll(msgInfo.Number, "+", ""),
+		Data: SentMessageData{
+			NewID:  retornoEnvio.ID,
+			OldID:  uuid,
+			Sender: strings.ReplaceAll(msgInfo.Number, "+", ""),
 		},
 	}
 	lastIndex := strings.LastIndex(clientId, "_")
