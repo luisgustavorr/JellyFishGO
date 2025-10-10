@@ -3,7 +3,6 @@ package modules
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
@@ -23,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/goccy/go-json"
 	"github.com/h2non/filetype"
 	"github.com/joho/godotenv"
 	"go.mau.fi/whatsmeow"
@@ -150,13 +150,6 @@ func ConvertWebPToJPEG(inputPath, outputPath string) error {
 	return nil
 }
 
-var bufferPool = sync.Pool{
-	New: func() interface{} {
-		s := make([]byte, 0, 2<<20) // 2mb
-		return &s                   // Retorna PONTEIRO para slice
-	},
-}
-
 func converterParaOgg(inputPath string) (string, error) {
 	ext := strings.ToLower(filepath.Ext(inputPath))
 	if ext != ".mp3" && ext != ".wav" && ext != ".m4a" && ext != ".aac" {
@@ -191,39 +184,6 @@ func converterParaOgg(inputPath string) (string, error) {
 	os.Remove(inputPath)
 
 	return outputPath, nil
-}
-func getAudioDuration(path string) (float64, error) {
-	cmd := exec.Command(
-		"ffprobe",
-		"-v", "quiet",
-		"-print_format", "json",
-		"-show_entries", "format=duration",
-		"-i", path,
-	)
-
-	var out bytes.Buffer
-	cmd.Stdout = &out
-
-	if err := cmd.Run(); err != nil {
-		return 0, fmt.Errorf("erro ao executar ffprobe: %w", err)
-	}
-
-	var result struct {
-		Format struct {
-			Duration string `json:"duration"`
-		} `json:"format"`
-	}
-
-	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
-		return 0, fmt.Errorf("erro ao interpretar resposta do ffprobe: %w", err)
-	}
-
-	seconds, err := strconv.ParseFloat(result.Format.Duration, 64)
-	if err != nil {
-		return 0, fmt.Errorf("erro ao converter duração: %w", err)
-	}
-
-	return seconds, nil
 }
 
 type SingleMessageInfo struct {
@@ -276,6 +236,61 @@ func convertPngToJpeg(pngPath string) (string, error) {
 
 	return outPath, nil
 }
+
+var bufferPool = sync.Pool{
+	New: func() interface{} {
+		s := make([]byte, 0, 2<<20) // 20mb
+		return &s                   // Retorna PONTEIRO para slice
+	},
+}
+
+func getBuffer(size int) ([]byte, func()) {
+	ptr := bufferPool.Get().(*[]byte)
+	buf := *ptr
+	release := func() {
+		bufferPool.Put(ptr)
+	}
+	if size > cap(buf) {
+		// Don’t resize the pooled one — allocate temporary
+		return make([]byte, size), func() {}
+	}
+	return buf[:size], release
+}
+
+func getAudioDuration(path string) (float64, error) {
+	cmd := exec.Command(
+		"ffprobe",
+		"-v", "quiet",
+		"-print_format", "json",
+		"-show_entries", "format=duration",
+		"-i", path,
+	)
+
+	var out bytes.Buffer
+	cmd.Stdout = &out
+
+	if err := cmd.Run(); err != nil {
+		return 0, fmt.Errorf("erro ao executar ffprobe: %w", err)
+	}
+
+	var result struct {
+		Format struct {
+			Duration string `json:"duration"`
+		} `json:"format"`
+	}
+
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		return 0, fmt.Errorf("erro ao interpretar resposta do ffprobe: %w", err)
+	}
+
+	seconds, err := strconv.ParseFloat(result.Format.Duration, 64)
+	if err != nil {
+		return 0, fmt.Errorf("erro ao converter duração: %w", err)
+	}
+
+	return seconds, nil
+}
+
 func PrepararMensagemArquivo(text string, message *waE2E.Message, chosedFile string, client *whatsmeow.Client, clientId string, msg SingleMessageInfo, UUID string) (messageBuilt *waE2E.Message, newPath string, shouldSendExtraMessage bool) {
 	// Abrindo o arquivo
 	var mensagem_ *waE2E.Message
@@ -319,34 +334,14 @@ func PrepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 	}
 	defer file.Close()
 	// Detectando o tipo MIME
-	bufPtr := bufferPool.Get().(*[]byte)
-	var buf []byte // outer buf variable
-
-	if bufPtr != nil {
-		buf = *bufPtr
-		defer func() {
-			*bufPtr = buf[:0]
-			bufferPool.Put(bufPtr)
-		}()
-	} else {
-		buf = make([]byte, 0) // fallback empty slice
-	}
-	defer func() {
-		*bufPtr = buf[:0]
-		bufferPool.Put(bufPtr)
-	}()
 	fileInfo, err := file.Stat()
 	if err != nil {
 		log.Printf("failed to stat file %s: %v", chosedFile, err)
 		return mensagem_, chosedFile, extraMessageNeeded
 	}
 	fileSize := fileInfo.Size()
-	if cap(buf) < int(fileSize) {
-		buf = make([]byte, fileSize)
-	} else {
-		// Reutiliza capacidade existente
-		buf = buf[:fileSize]
-	}
+	buf, release := getBuffer(int(fileSize))
+	defer release()
 	_, err = io.ReadFull(file, buf)
 	if err != nil {
 		fmt.Printf("Erro ao ler o arquivo: %v", err)
