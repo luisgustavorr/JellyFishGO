@@ -251,11 +251,14 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 		if err != nil {
 			fmt.Println("RRO NO GET CLIENTE", err)
 		} else {
-			JID := validNumber[0].JID
-			for _, messageToSee := range data.Data {
-				var MessageID []types.MessageID = []types.MessageID{messageToSee.Mensagem.ID}
-				whatsClient.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
+			if len(validNumber) > 0 && validNumber[0].JID != types.EmptyJID {
+				JID := validNumber[0].JID
+				for _, messageToSee := range data.Data {
+					var MessageID []types.MessageID = []types.MessageID{messageToSee.Mensagem.ID}
+					whatsClient.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
+				}
 			}
+
 		}
 	}(data)
 
