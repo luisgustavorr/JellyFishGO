@@ -238,23 +238,22 @@ func insertMessage(clientId string, idBatch string, idMessage string, msgInfo Me
 	buf.Reset()
 	defer jsonBufferPool.Put(buf)
 	var err error
-	jsonStringOfQuotedMessage := []byte("{}")
+	jsonStringOfQuotedMessage := "{}"
 	if msgInfo.Quoted_message != nil {
 		buf.Reset()
 		if err := json.NewEncoder(buf).Encode(msgInfo.Quoted_message); err == nil {
-			jsonStringOfQuotedMessage = buf.Bytes()
+			jsonStringOfQuotedMessage = strings.Clone(buf.String())
 		}
 	}
-
-	jsonStringOfSendContact := []byte("{}")
+	jsonStringOfSendContact := "{}"
 	if send_contact != nil {
 		buf.Reset()
 		if err := json.NewEncoder(buf).Encode(send_contact); err == nil {
-			jsonStringOfSendContact = buf.Bytes()
+			jsonStringOfSendContact = strings.Clone(buf.String())
 		}
 	}
-
-	_, err = db.Stmts.InsertUUID.Exec(idMessage, idBatch, clientId, msgInfo.Text, msgInfo.Number, data_desejada, msgInfo.Documento_padrao, string(jsonStringOfQuotedMessage), msgInfo.Edited_id_message, msgInfo.Focus, msgInfo.Id_grupo, string(jsonStringOfSendContact), Desenvolvimento)
+	fmt.Println(jsonStringOfQuotedMessage)
+	_, err = db.Stmts.InsertUUID.Exec(idMessage, idBatch, clientId, msgInfo.Text, msgInfo.Number, data_desejada, msgInfo.Documento_padrao, jsonStringOfQuotedMessage, msgInfo.Edited_id_message, msgInfo.Focus, msgInfo.Id_grupo, jsonStringOfSendContact, Desenvolvimento)
 	if err != nil {
 		log.Println("Erro ao adicionar mensagem:", err)
 	}
