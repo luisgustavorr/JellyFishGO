@@ -652,7 +652,8 @@ func enviarMensagem(uuid string) {
 	defer SetStatus(client, "conectado", JID)
 	if msgInfo.Quoted_message != nil && msgInfo.Quoted_message.Quoted_sender != "" && msgInfo.Quoted_message.Quoted_message_id != "" {
 		validNumber, err := actions.CheckNumberWithRetry(client, sanitizeNumber(msgInfo.Quoted_message.Quoted_sender), id_grupo != "", clientId)
-		if err == nil {
+
+		if err == nil && len(validNumber) >= 0 && validNumber[0].JID != types.EmptyJID {
 			var msg_quote *waE2E.Message = &waE2E.Message{
 				ExtendedTextMessage: &waE2E.ExtendedTextMessage{
 					Text: proto.String(msgInfo.Quoted_message.Quoted_text),
@@ -676,7 +677,7 @@ func enviarMensagem(uuid string) {
 	if sendContact != nil && sendContact.Contato != "" && sendContact.Nome != "" {
 		// Deserializando o JSON corretamente para o map
 		validNumber, err := actions.CheckNumberWithRetry(client, sanitizeNumber(sendContact.Contato), id_grupo != "", clientId)
-		if err == nil {
+		if err == nil && len(validNumber) >= 0 && validNumber[0].JID != types.EmptyJID {
 			fmt.Println(err, "ERRO IS ONWHATSAPP")
 			response := validNumber[0]
 			cell := response.JID.User
