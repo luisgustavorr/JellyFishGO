@@ -128,7 +128,7 @@ func (c *MessagesQueue) AddMessage(clientID string, message Envelope, number str
 		fmt.Printf("⏳ -> ENVIANDO %d MENSAGENS ANTES DO TIMER DO CLIENTE %s \n", messageCount, clientID)
 		return
 	}
-	timerBetweenMessage := -0.15*float64(messageCount)*float64(messageCount) + 0.5*float64(messageCount) + 15
+	timerBetweenMessage := -0.15*float64(messageCount)*float64(messageCount) + 0.5*float64(messageCount) + 7
 	if timerBetweenMessage < 0 {
 		timerBetweenMessage = 0.001
 	}
@@ -464,6 +464,7 @@ type EnvelopePayload struct {
 }
 type MessageAttrs struct {
 	FileType      string         `json:"file_type,omitempty"`
+	FileName      string         `json:"file_name,omitempty"`
 	Media         string         `json:"media,omitempty"`
 	Audio         string         `json:"audio,omitempty"`
 	Edited        int            `json:"edited,omitempty"`
@@ -555,13 +556,13 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	}
 	var contactMessage *waE2E.ContactMessage = fullInfoMessage.Message.GetContactMessage()
 	var contactMessageArray *waE2E.ContactsArrayMessage = fullInfoMessage.Message.GetContactsArrayMessage()
-	fmt.Println(contactMessageArray)
 	message := fullInfoMessage.Message
 
 	var groupMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "@g.us")
 	var contextInfo = message.ExtendedTextMessage.GetContextInfo()
-	var senderName string = fullInfoMessage.Info.PushName
 	var text string = getText(message)
+
+	var senderName string = fullInfoMessage.Info.PushName
 	var fromMe = fullInfoMessage.Info.IsFromMe
 	ctx := context.Background()
 	sender := fullInfoMessage.Info.Sender
@@ -580,6 +581,12 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			}
 		}
 		// fmt.Println("📩 -> Mensagem RECEBIDA TEMPORARIO LOG:", senderName, senderNumber, clientId, text, fullInfoMessage.Info.Sender, " | By Group:", groupMessage)
+	}
+	var fileName = ""
+	if message.DocumentMessage != nil {
+		fileName = *message.DocumentMessage.FileName
+		fmt.Println("File name encontrado : ", fileName)
+
 	}
 	var id_message string = fullInfoMessage.Info.ID
 	var editedInfo = message.GetProtocolMessage().GetKey().GetID()
@@ -655,6 +662,9 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		if strings.Contains(fileType, "audio") {
 			messageAttr.Audio = media
 		} else {
+			if fileName != "" {
+				messageAttr.FileName = fileName
+			}
 			messageAttr.Media = media
 		}
 	}
