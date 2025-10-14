@@ -527,8 +527,12 @@ func pollDueMessages(batchSize int) {
 }
 func updateLastError(uuid string, shouldTryAgain bool, attempts int32, lastError string) error {
 	db := connectToMessagesQueueDB()
+	if !shouldTryAgain {
+		attempts = maxRetries
+	}
 	fmt.Printf("[ERROR_STATUS] -> Atualizando status de erro da mensagem %s, com %d tentativas, deve tentar novamente ? %v \n", uuid, attempts, shouldTryAgain)
 	backoff := 30 * attempts
+
 	if attempts < maxRetries-1 {
 		_, err := db.DB.Exec(`UPDATE pendingMessages
   SET last_error = $1,status='Error, Will Try Again',attempts = attempts +1 ,data_desejada = data_desejada+$2,agendada = false,should_try_again=$3 WHERE uuid= $4`, lastError, backoff, shouldTryAgain, uuid)
@@ -538,7 +542,7 @@ func updateLastError(uuid string, shouldTryAgain bool, attempts int32, lastError
 		}
 	} else {
 		_, err := db.DB.Exec(`UPDATE pendingMessages
-  SET last_error = $1,status='Final Error, Will be deleted',attempts = attempts +1,should_try_again=$2 WHERE uuid= $3`, lastError, false, uuid)
+  SET last_error = $1,status='Final Error, Will be deleted',attempts = $2,should_try_again=$3 WHERE uuid= $4`, lastError, attempts, false, uuid)
 		if err != nil {
 			fmt.Println(err)
 			return err
@@ -634,7 +638,6 @@ func enviarMensagem(uuid string) {
 		if len(validNumber) == 0 {
 			fmt.Println("⛔ -> Numero inválido. ClientId: ", clientId, " | Numero: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo)
 			updateLastError(uuid, false, msgInfo.Attempts, fmt.Sprintln("⛔ -> Numero inválido. ClientId: ", clientId, " | Numero: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo))
-
 			return
 		}
 		response := validNumber[0] // Acessa o primeiro item da slicet
