@@ -115,7 +115,6 @@ func (s *Send_contact) Scan(value interface{}) error {
 	if value == nil {
 		return nil
 	}
-
 	var data []byte
 	switch v := value.(type) {
 	case string:
@@ -141,7 +140,7 @@ type Database struct {
 	Stmts Statements
 }
 
-var jsonBufferPool = sync.Pool{
+var JsonBufferPool = sync.Pool{
 	New: func() any {
 		return new(bytes.Buffer)
 	},
@@ -234,9 +233,9 @@ RETURNING p.uuid;`)
 func insertMessage(clientId string, idBatch string, idMessage string, msgInfo MessageIndividual, data_desejada int64, send_contact *Send_contact) {
 	db := connectToMessagesQueueDB()
 
-	buf := jsonBufferPool.Get().(*bytes.Buffer)
+	buf := JsonBufferPool.Get().(*bytes.Buffer)
 	buf.Reset()
-	defer jsonBufferPool.Put(buf)
+	defer JsonBufferPool.Put(buf)
 	var err error
 	jsonStringOfQuotedMessage := "{}"
 	if msgInfo.Quoted_message != nil {
@@ -366,9 +365,9 @@ func (d *Database) Close() {
 }
 
 func SendToEndPoint(data SentMessagePayload, url string) {
-	buf := jsonBufferPool.Get().(*bytes.Buffer)
+	buf := JsonBufferPool.Get().(*bytes.Buffer)
 	buf.Reset()
-	defer jsonBufferPool.Put(buf)
+	defer JsonBufferPool.Put(buf)
 
 	enc := json.NewEncoder(buf)
 	enc.SetEscapeHTML(false)
@@ -401,9 +400,9 @@ func SendToEndPoint(data SentMessagePayload, url string) {
 	fmt.Println("🌐 -> Resposta Status: [", resp.Status, "] | evento : ", data.Evento, " | clientId :", data.ClientID)
 }
 func SendGenericToEndPoint(data GenericPayload, url string) {
-	buf := jsonBufferPool.Get().(*bytes.Buffer)
+	buf := JsonBufferPool.Get().(*bytes.Buffer)
 	buf.Reset()
-	defer jsonBufferPool.Put(buf)
+	defer JsonBufferPool.Put(buf)
 
 	enc := json.NewEncoder(buf)
 	enc.SetEscapeHTML(false)
@@ -671,7 +670,6 @@ func enviarMensagem(uuid string) {
 				},
 			}
 		}
-
 	}
 	if msgInfo.Edited_id_message != "" {
 		message = client.BuildEdit(JID, msgInfo.Edited_id_message, message)

@@ -182,9 +182,14 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 var retryEnvelope = map[string]int{}
 
 func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string) {
-	jsonData, err := json.MarshalWithOption(data, json.DisableHTMLEscape())
-	if err != nil {
+	buf := modules.JsonBufferPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	defer modules.JsonBufferPool.Put(buf)
+	enc := json.NewEncoder(buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(data); err != nil {
 		fmt.Printf("Erro ao criar marshal: %v", err)
+
 		return
 	}
 	// fmt.Println("Envelope sendo envidada :", string(jsonData))
@@ -192,7 +197,7 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 		fmt.Printf("URL %s vazia", url)
 		return
 	}
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", url, buf)
 	if err != nil {
 		fmt.Printf("Erro ao criar a requisição: %v", err)
 		return
@@ -220,19 +225,20 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 
 			dataToLog.Data = append(dataToLog.Data, nonMediaData)
 		}
-		b, _ := json.MarshalIndent(dataToLog, "", "  ")
-		body := []byte{}
-		if resp != nil {
-			body, err = io.ReadAll(resp.Body)
-			if err != nil {
-				return
-			}
-		}
 
-		fmt.Println("Body ERROR Response :", string(body))
-		fmt.Println("Payload:", string(b))
-		fmt.Printf("Erro ao enviar a requisição do '%s' , tentativa (%d/%d): %v\n", data.ClientID, retryEnvelope[envelopeToken]+1, 5, err)
 		if retryEnvelope[envelopeToken] > 3 {
+			b, _ := json.MarshalIndent(dataToLog, "", "  ")
+			body := []byte{}
+			if resp != nil {
+				body, err = io.ReadAll(resp.Body)
+				if err != nil {
+					return
+				}
+			}
+
+			fmt.Println("Body ERROR Response :", string(body))
+			fmt.Println("Payload:", string(b))
+			fmt.Printf("Erro ao enviar a requisição do '%s' , tentativa (%d/%d): %v\n", data.ClientID, retryEnvelope[envelopeToken]+1, 5, err)
 			delete(retryEnvelope, envelopeToken)
 		} else {
 			retryEnvelope[envelopeToken] += 1
@@ -279,16 +285,17 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 			nonMediaData.Mensagem.Attrs.Audio = "audio_here"
 			dataToLog.Data = append(dataToLog.Data, nonMediaData)
 		}
-		b, _ := json.MarshalIndent(dataToLog, "", "  ")
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return
-		}
-		fmt.Println("Body ERROR Response :", string(body))
-		fmt.Println("Payload:", string(b))
 
-		fmt.Printf("Erro ao enviar a requisição do '%s' , tentativa (%d/%d): %v\n", data.ClientID, retryEnvelope[envelopeToken]+1, 5, err)
 		if retryEnvelope[envelopeToken] > 3 {
+			b, _ := json.MarshalIndent(dataToLog, "", "  ")
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return
+			}
+			fmt.Println("Body ERROR Response :", string(body))
+			fmt.Println("Payload:", string(b))
+
+			fmt.Printf("Erro ao enviar a requisição do '%s' , tentativa (%d/%d): %v\n", data.ClientID, retryEnvelope[envelopeToken]+1, 5, err)
 			delete(retryEnvelope, envelopeToken)
 		} else {
 			retryEnvelope[envelopeToken] += 1
