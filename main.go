@@ -876,7 +876,7 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool
 				return responses, nil
 			}
 		} else {
-			modules.SaveNumberInCache(number, responses[0].JID.User, responses[0].JID.Server, clientId, false)
+			modules.SaveNumberInCache(number, "", "", clientId, false)
 			return []types.IsOnWhatsAppResponse{}, err
 
 		}
@@ -898,7 +898,7 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool
 		} else {
 			time.Sleep(backoff)
 			backoff *= 2
-			modules.SaveNumberInCache(number, responses[0].JID.User, responses[0].JID.Server, clientId, false)
+			modules.SaveNumberInCache(number, "", "", clientId, false)
 
 			return []types.IsOnWhatsAppResponse{}, err
 
