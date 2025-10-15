@@ -588,7 +588,7 @@ func enviarMensagem(uuid string) {
 		return
 	}
 
-	msgInfo.Number = sanitizeNumber(msgInfo.Number)
+	msgInfo.Number = SanitizeNumber(msgInfo.Number)
 	client := actions.GetClient(clientId)
 	if client == nil {
 		client = actions.TryConnecting(clientId)
@@ -653,7 +653,7 @@ func enviarMensagem(uuid string) {
 	SetStatus(client, "digitando", JID)
 	defer SetStatus(client, "conectado", JID)
 	if msgInfo.Quoted_message != nil && msgInfo.Quoted_message.Quoted_sender != "" && msgInfo.Quoted_message.Quoted_message_id != "" {
-		validNumber, err := actions.CheckNumberWithRetry(client, sanitizeNumber(msgInfo.Quoted_message.Quoted_sender), id_grupo != "", clientId)
+		validNumber, err := actions.CheckNumberWithRetry(client, SanitizeNumber(msgInfo.Quoted_message.Quoted_sender), id_grupo != "", clientId)
 
 		if err == nil && len(validNumber) > 0 && validNumber[0].JID != types.EmptyJID {
 			var msg_quote *waE2E.Message = &waE2E.Message{
@@ -677,7 +677,7 @@ func enviarMensagem(uuid string) {
 	sendContact := msgInfo.Send_contact
 	if sendContact != nil && sendContact.Contato != "" && sendContact.Nome != "" {
 		// Deserializando o JSON corretamente para o map
-		validNumber, err := actions.CheckNumberWithRetry(client, sanitizeNumber(sendContact.Contato), id_grupo != "", clientId)
+		validNumber, err := actions.CheckNumberWithRetry(client, SanitizeNumber(sendContact.Contato), id_grupo != "", clientId)
 		if err == nil && len(validNumber) > 0 && validNumber[0].JID != types.EmptyJID {
 			fmt.Println(err, "ERRO IS ONWHATSAPP")
 			response := validNumber[0]
@@ -788,12 +788,4 @@ func removeMensagemPendente(uuid string) {
 	if err != nil {
 		log.Println("Erro ao remover mensagem 1:", err)
 	}
-}
-
-func sanitizeNumber(input string) string {
-	n := strings.Join(Re0to9.FindAllString(input, -1), "")
-	if len(n) > 2 && !strings.HasPrefix(n, "55") {
-		return "+55" + n
-	}
-	return n
 }

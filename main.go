@@ -725,6 +725,8 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			sendEnvelopeToEndPoint(data, baseURL+"chatbot/chat/mensagens/novas-mensagens/", "")
 		}
 	} else {
+		//save aqui
+		modules.SaveNumberInCache(modules.SanitizeNumber(sender.User), sender.User, sender.Server, clientId, true)
 
 		if media != "" || text != "" || contactMessage != nil || contactMessageArray != nil {
 			if contactMessageArray != nil {

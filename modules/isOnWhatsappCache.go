@@ -22,7 +22,7 @@ func criarDBCache() *sql.DB {
 	verifiedNumbers.SetMaxIdleConns(5)
 	verifiedNumbers.SetConnMaxLifetime(time.Hour)
 	createTableSQL := `CREATE TABLE IF NOT EXISTS verifiedNumbers (
-		raw_number TEXT,
+		raw_number TEXT UNIQUE,
 		found_number TEXT,
 		found_server TEXT,
 		clientId TEXT,
@@ -107,7 +107,9 @@ func SaveNumberInCache(raw_number string, found_number string, server string, cl
 	limite := time.Now().Add((30 * 24) * time.Hour).Unix()
 	_, err := verifiedNumbers.Exec(`INSERT INTO verifiedNumbers (raw_number ,found_number ,found_server,
 		clientId ,
-		expires_in 	) VALUES (?,?,?,?,?)`, raw_number, found_number, server, client_id, limite)
+		expires_in 	) VALUES (?,?,?,?,?) ON CONFLICT (raw_number) DO UPDATE SET
+		expires_in = EXCLUDED.expires_in
+	`, raw_number, found_number, server, client_id, limite)
 	if err != nil {
 		fmt.Println("Erro no save number : ", err)
 	}

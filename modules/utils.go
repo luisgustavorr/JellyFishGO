@@ -507,3 +507,10 @@ func FormatPhoneNumber(phone string) string {
 	}
 	return formatted
 }
+func SanitizeNumber(input string) string {
+	n := strings.Join(Re0to9.FindAllString(input, -1), "")
+	if len(n) > 2 && !strings.HasPrefix(n, "55") {
+		return "+55" + n
+	}
+	return n
+}
