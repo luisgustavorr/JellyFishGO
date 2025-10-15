@@ -602,8 +602,9 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	media, fileType := getMedia(ctx, fullInfoMessage, clientId)
 	edited := 0
 
-	JID := client.Store.GetJID()
+	JID := sender
 	if fromMe {
+		JID = client.Store.GetJID()
 		senderNumber = fullInfoMessage.Info.Chat.User
 	}
 	params := &whatsmeow.GetProfilePictureParams{}
@@ -759,7 +760,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 							Nome:    name,
 						}
 					}
-					fmt.Println(objetoMensagens.Mensagem.Attrs.Contact)
+
 					novoObjetoMensagens := objetoMensagens
 					novoObjetoMensagens.Mensagem.ID = novoObjetoMensagens.Mensagem.ID + "_" + numero
 					fmt.Println(novoObjetoMensagens.Mensagem.Attrs)
@@ -775,6 +776,8 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 					fmt.Println("!--------------------->MENSAGEM COM ID JÁ ENVIADO<---------------------!")
 					return false
 				}
+				// teste, _ := json.MarshalIndent(objetoMensagens.Mensagem, " ", "")
+				// fmt.Println(string(teste))
 				// var MessageID []types.MessageID = []types.MessageID{id_message}
 				// go func(MessageID []types.MessageID) {
 				// 	tempoParaVer := randomBetweenf(3, 15)
