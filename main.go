@@ -36,6 +36,7 @@ import (
 	"github.com/gofiber/fiber/v2/utils"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
+	jsoniter "github.com/json-iterator/go"
 	_ "github.com/mattn/go-sqlite3" // Importação do driver SQLite
 	"github.com/skip2/go-qrcode"
 	"go.mau.fi/whatsmeow"
@@ -58,7 +59,7 @@ var (
 )
 var focusedMessagesKeys = []string{}
 var _ = godotenv.Load()
-
+var jsonFast = jsoniter.ConfigCompatibleWithStandardLibrary
 var groupPicCache sync.Map // Thread-safe
 // Pega foto de perfil do grupo
 func getGroupProfilePicture(client *whatsmeow.Client, groupJID types.JID) *types.ProfilePictureInfo {
@@ -185,9 +186,8 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 	buf := modules.JsonBufferPool.Get().(*bytes.Buffer)
 	buf.Reset()
 	defer modules.JsonBufferPool.Put(buf)
-	enc := json.NewEncoder(buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(data); err != nil {
+	err := jsonFast.NewEncoder(buf).Encode(data)
+	if err != nil {
 		fmt.Printf("Erro ao criar marshal: %v", err)
 
 		return
