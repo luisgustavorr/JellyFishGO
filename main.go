@@ -249,7 +249,7 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 	}
 	defer resp.Body.Close()
 	go func(data EnvelopePayload) {
-		tempoParaVer := randomBetweenf(3, 15)
+		tempoParaVer := randomBetweenf(1, 4)
 		fmt.Println("Esperando tempo para visualizar !! ", tempoParaVer, " segundos")
 		whatsClient := getClient(data.ClientID)
 		time.Sleep(time.Duration(tempoParaVer) * time.Second)
