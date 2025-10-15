@@ -601,13 +601,8 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	var quotedMessageID string = contextInfo.GetStanzaID()
 	media, fileType := getMedia(ctx, fullInfoMessage, clientId)
 	edited := 0
-	validNumber, err := checkNumberWithRetry(client, senderNumber, groupMessage, clientId)
-	if err != nil {
-		fmt.Println(err, "ERRO IS ONWHATSAPP")
-		return false
-	}
-	response := validNumber[0] // Acessa o primeiro item da slice
-	JID := response.JID
+
+	JID := client.Store.GetJID()
 	if fromMe {
 		senderNumber = fullInfoMessage.Info.Chat.User
 	}
