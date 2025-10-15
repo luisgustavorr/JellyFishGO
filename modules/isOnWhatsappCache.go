@@ -61,6 +61,10 @@ func FindNumberInCache(raw_number string) (found bool, number_found string, serv
 			continue
 		}
 		fmt.Println("Número em cache achado : ", found_number)
+		if found_number == "" && found_server == "" {
+			return true, found_number, found_server
+
+		}
 		return true, found_number, found_server
 
 	}
@@ -70,7 +74,7 @@ func FindRandomNumberInCache(client_id string) (found bool, number_found string,
 	criarDBCache()
 	rows, err := verifiedNumbers.Query(
 		`SELECT found_number,found_server FROM verifiedNumbers 
-	 WHERE clientId = ?  ORDER BY RANDOM() LIMIT 1;`,
+	 WHERE clientId = ? AND found_number != '' AND found_server != ''   ORDER BY RANDOM() LIMIT 1;`,
 		client_id,
 	)
 	if err != nil {
@@ -93,10 +97,14 @@ func FindRandomNumberInCache(client_id string) (found bool, number_found string,
 	}
 	return false, "", found_server
 }
-func SaveNumberInCache(raw_number string, found_number string, server string, client_id string) {
+func SaveNumberInCache(raw_number string, found_number string, server string, client_id string, isOnWhatsapp bool) {
 	criarDBCache()
 	// limite := time.Now().Unix()
-	limite := time.Now().Add((15 * 24) * time.Hour).Unix()
+	if !isOnWhatsapp {
+		found_number = ""
+		server = ""
+	}
+	limite := time.Now().Add((30 * 24) * time.Hour).Unix()
 	_, err := verifiedNumbers.Exec(`INSERT INTO verifiedNumbers (raw_number ,found_number ,found_server,
 		clientId ,
 		expires_in 	) VALUES (?,?,?,?,?)`, raw_number, found_number, server, client_id, limite)

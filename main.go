@@ -601,7 +601,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	var quotedMessageID string = contextInfo.GetStanzaID()
 	media, fileType := getMedia(ctx, fullInfoMessage, clientId)
 	edited := 0
-	validNumber, err := client.IsOnWhatsApp([]string{senderNumber})
+	validNumber, err := checkNumberWithRetry(client, senderNumber, groupMessage, clientId)
 	if err != nil {
 		fmt.Println(err, "ERRO IS ONWHATSAPP")
 		return false
@@ -855,6 +855,10 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool
 	found, found_number, found_server := modules.FindNumberInCache(number)
 	if found {
 		fmt.Printf("# ✅ -> Número '%s' (asked as : '%s') achado no cache !! \n", found_number, number)
+		if found_number == "" && found_server == "" {
+			return []types.IsOnWhatsAppResponse{}, nil
+
+		}
 		return []types.IsOnWhatsAppResponse{
 			{
 				Query: "",
@@ -862,6 +866,7 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool
 				JID:   types.JID{User: found_number, Server: found_server},
 			},
 		}, nil
+
 	}
 	fmt.Println("Resultado em cache :", found, number)
 	for i := 0; i < maxRetries; i++ {
@@ -869,11 +874,12 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool
 		if err == nil && len(responses) > 0 {
 			response := responses[0]
 			if response.IsIn || de_grupo {
-				modules.SaveNumberInCache(number, response.JID.User, response.JID.Server, clientId)
+				modules.SaveNumberInCache(number, response.JID.User, response.JID.Server, clientId, true)
 
 				return responses, nil
 			}
 		} else {
+			modules.SaveNumberInCache(number, responses[0].JID.User, responses[0].JID.Server, clientId, false)
 			return []types.IsOnWhatsAppResponse{}, err
 
 		}
@@ -881,6 +887,7 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool
 	}
 	fmt.Println(len(number))
 	if len(number) < 5 || len(number) == 13 {
+		modules.SaveNumberInCache(number, "", "", clientId, false)
 		return []types.IsOnWhatsAppResponse{}, fmt.Errorf("error : número pequeno/grande demais, inválido para segunda comparação")
 	}
 	numberWith9 := number[:4] + "9" + number[4:]
@@ -889,11 +896,13 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool
 	for i := 0; i < maxRetries; i++ {
 		responses, err := isOnWhatsAppSafe(client, []string{numberWith9})
 		if err == nil && len(responses) > 0 && responses[0].IsIn {
-			modules.SaveNumberInCache(number, responses[0].JID.User, responses[0].JID.Server, clientId)
+			modules.SaveNumberInCache(number, responses[0].JID.User, responses[0].JID.Server, clientId, true)
 			return responses, nil
 		} else {
 			time.Sleep(backoff)
 			backoff *= 2
+			modules.SaveNumberInCache(number, responses[0].JID.User, responses[0].JID.Server, clientId, false)
+
 			return []types.IsOnWhatsAppResponse{}, err
 
 		}
