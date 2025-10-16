@@ -642,6 +642,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			Contato: numero,
 			Nome:    name,
 		}
+		fmt.Println(contactObject)
 	}
 
 	messageAttr := MessageAttrs{
