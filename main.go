@@ -616,7 +616,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	var contactObject ContactInfo
 	if contactMessage != nil {
 		var name string = *contactMessage.DisplayName
-		var vcard string = *contactMessage.Vcard
+		var vcard string = contactMessage.GetVcard()
 		startIndex := strings.Index(vcard, "waid=")
 		var numero string
 		if startIndex != -1 {
@@ -627,6 +627,15 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			}
 			numero = vcard[startIndex:endIndex]
 		} else {
+			startIndex = strings.Index(vcard, "type=VOICE:")
+			if startIndex != -1 {
+				startIndex += len("type=VOICE:") // Pular "waid="
+				endIndex := startIndex
+				for endIndex < len(vcard) && unicode.IsDigit(rune(vcard[endIndex])) {
+					endIndex++
+				}
+				name += " (" + vcard[startIndex:endIndex] + ")"
+			}
 			numero = "sem_whatsapp"
 		}
 		contactObject = ContactInfo{
@@ -745,6 +754,16 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 						}
 						numero = vcard[startIndex:endIndex]
 					} else {
+						startIndex = strings.Index(vcard, "type=VOICE:")
+						if startIndex != -1 {
+							startIndex += len("type=VOICE:") // Pular "waid="
+							endIndex := startIndex
+							for endIndex < len(vcard) && unicode.IsDigit(rune(vcard[endIndex])) {
+								endIndex++
+							}
+							name += " (" + vcard[startIndex:endIndex] + ")"
+
+						}
 						numero = "sem_whatsapp" + name
 					}
 					var uniqueMessageID string = strings.Replace(id_message+"_"+string(numero)+"_"+senderNumber+"_"+clientId, " ", "", -1)
