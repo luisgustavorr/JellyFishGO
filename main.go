@@ -602,9 +602,9 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	media, fileType := getMedia(ctx, fullInfoMessage, clientId)
 	edited := 0
 
-	JID := sender
+	JID := sender.ToNonAD()
 	if fromMe {
-		JID = client.Store.GetJID()
+		JID = client.Store.GetJID().ToNonAD()
 		senderNumber = fullInfoMessage.Info.Chat.User
 	}
 	params := &whatsmeow.GetProfilePictureParams{}
@@ -612,7 +612,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	if editedInfo != "" {
 		edited = 1
 		id_message = editedInfo
-	}
+	} //553799341697:73@s.whatsapp.net
 	var contactObject ContactInfo
 	if contactMessage != nil {
 		var name string = *contactMessage.DisplayName
@@ -785,6 +785,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 				// 	time.Sleep(time.Duration(tempoParaVer) * time.Second)
 				// 	client.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
 				// }(MessageID)
+
 				messagesQueue.AddMessage(clientId, objetoMensagens, senderNumber)
 				fmt.Printf("------------------ %s Receiving Message Event | By Group : %v | Is Media : %v ------------------------ \n\n", clientId, groupMessage, media != "")
 				fmt.Println("📩 -> Mensagem RECEBIDA:", id_message, senderName, senderNumber, clientId, text, " | By Group:", groupMessage, "| Is Media :", media != "")
