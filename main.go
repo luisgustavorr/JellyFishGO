@@ -612,7 +612,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	if editedInfo != "" {
 		edited = 1
 		id_message = editedInfo
-	} //553799341697:73@s.whatsapp.net
+	}
 	var contactObject ContactInfo
 	if contactMessage != nil {
 		var name string = *contactMessage.DisplayName
