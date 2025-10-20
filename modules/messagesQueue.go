@@ -36,6 +36,16 @@ type SentMessagePayload struct {
 	Data     SentMessageData `json:"data,omitempty"`
 	Sender   int             `json:"sender,omitempty"`
 }
+type RelatorioMensagensPayload struct {
+	clientId   string
+	OldID      string `json:"older_id"`
+	Id_grupo   string `json:"slug_disparo"`
+	Id_message string `json:"newer_id"`
+	Number     string `json:"whatsapp"`
+	Err        string `json:"erros"`
+	Ok         string `json:"sucessos"`
+	Data       string `json:"data_hora"`
+}
 
 type SendMessageInfo struct {
 	Result           []MessageIndividual   `json:"result"`
@@ -52,6 +62,7 @@ type SentMessageData struct {
 	OldID  string `json:"oldID"`
 	Sender string `json:"sender"`
 }
+
 type BasicActions struct {
 	GetClient            func(clientId string) *whatsmeow.Client
 	CheckNumberWithRetry func(client *whatsmeow.Client, number string, de_grupo bool, clientId string) (resp []types.IsOnWhatsAppResponse, err error)
@@ -72,6 +83,7 @@ type MessageIndividual struct {
 	Focus             string          `json:"focus"`
 	UUID              string          `json:"idMensagem"`
 	Id_grupo          string          `json:"id_grupo"`
+	IdBatch           string          `json:"idbatch"`
 	Quoted_message    *Quoted_message `json:"quotedMessage,omitempty"`
 	Edited_id_message string          `json:"editedIDMessage"`
 	Send_contact      *Send_contact   `json:"sendContact,omitempty"`
@@ -158,7 +170,7 @@ func connectToMessagesQueueDB() *Database {
 	}
 	selectStmt, err := db.Prepare(`
 		SELECT clientId, text, number, documento_padrao, quoted_message, 
-		       edited_id_message, focus, id_grupo, send_contact,attempts
+		       edited_id_message, focus, id_grupo, send_contact,attempts,idbatch
 		FROM pendingMessages
 		WHERE uuid = $1 LIMIT 1`)
 	if err != nil {
@@ -399,6 +411,41 @@ func SendToEndPoint(data SentMessagePayload, url string) {
 	fmt.Println(url)
 	fmt.Println("🌐 -> Resposta Status: [", resp.Status, "] | evento : ", data.Evento, " | clientId :", data.ClientID)
 }
+func SendRelatorioToEndPoint(data RelatorioMensagensPayload, url string) {
+	buf := JsonBufferPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	defer JsonBufferPool.Put(buf)
+
+	enc := json.NewEncoder(buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(data); err != nil {
+		return
+	}
+
+	// fmt.Println("Data sendo envidada :", string(jsonData))
+	if url == "" {
+		fmt.Printf("URL %s vazia", url)
+		return
+	}
+	req, err := http.NewRequest("POST", url, buf)
+	if err != nil {
+		fmt.Printf("Erro ao criar a requisição: %v", err)
+		return
+	}
+	defer buf.Reset()
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", os.Getenv("STRING_AUTH"))
+	req.Header.Set("X-CSRFToken", GetCSRFToken())
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("Erro ao enviar a requisição: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	fmt.Println(url)
+	fmt.Println("🌐 -> Resposta Status: [", resp.Status, "] | evento : ", "Relatório enviado", " | clientId :", data.clientId)
+}
 func SendGenericToEndPoint(data GenericPayload, url string) {
 	buf := JsonBufferPool.Get().(*bytes.Buffer)
 	buf.Reset()
@@ -555,15 +602,9 @@ func enviarMensagem(uuid string) {
 	db := connectToMessagesQueueDB()
 	mainCtx := context.Background()
 	// ctx := context.Background()
-
+	// 01-mes 02-dia 2006-ano 03-hora 04-min 05-seg
 	ctxWT, cancel := context.WithTimeout(mainCtx, 15000*time.Millisecond)
 	defer cancel()
-	// rows := db.DB.QueryRowContext(ctx,
-	// 	`SELECT clientId, text, number,documento_padrao,quoted_message,edited_id_message,focus,id_grupo,send_contact  FROM pendingMessages
-	//  WHERE uuid = ? LIMIT 1`,
-	// 	uuid,
-	// )
-
 	var clientId string
 	msgInfo := MessageIndividual{}
 	err := db.Stmts.GetPendingByUUID.QueryRowContext(ctxWT, uuid).Scan(
@@ -577,6 +618,7 @@ func enviarMensagem(uuid string) {
 		&msgInfo.Id_grupo,
 		&msgInfo.Send_contact,
 		&msgInfo.Attempts,
+		&msgInfo.IdBatch,
 	)
 
 	if err != nil {
@@ -624,27 +666,63 @@ func enviarMensagem(uuid string) {
 		message, newNameFile, extraMessage = PrepararMensagemArquivo(msgInfo.Text, message, msgInfo.Documento_padrao, client, clientId, msg, uuid)
 
 	}
+	var retornoEnvio = whatsmeow.SendResponse{}
+	if msgInfo.Focus == "disparo_mensagens" {
+		defer func() {
+			fmt.Println("Devolver relatório do disparo", err)
+			errMessage := ""
+			okMessage := "Mensagem enviada com sucesso !"
+			if err != nil {
+				errMessage = err.Error()
+				okMessage = ""
+			}
+			data := RelatorioMensagensPayload{
+				clientId:   clientId,
+				Id_grupo:   msgInfo.IdBatch,
+				OldID:      uuid,
+				Id_message: retornoEnvio.ID,
+				Number:     strings.ReplaceAll(msgInfo.Number, "+", ""),
+				Ok:         okMessage,
+				Err:        errMessage,
+				Data:       time.Now().Format("2006-01-02T03:04:05"),
+			}
+			lastIndex := strings.LastIndex(clientId, "_")
+			sufixo := clientId[lastIndex+1:]
+			urlToSend := ""
+			if urlSendMessageEdpoint[sufixo] == "" {
+				baseURL := strings.Split(MapOficial[sufixo], "chatbot")[0]
+				if strings.Contains(baseURL, "disparo") {
+					baseURL = strings.Split(MapOficial[sufixo], "disparo")[0]
+				}
+				urlToSend = baseURL + "disparo/v2/retorno-disparo/"
+			}
+			removeMensagemPendente(uuid)
 
+			SendRelatorioToEndPoint(data, urlToSend)
+		}()
+	}
 	if id_grupo != "" {
 		JID = types.JID{User: strings.Replace(id_grupo, "@g.us", "", -1), Server: types.GroupServer}
 	} else {
 		if err != nil {
 			fmt.Println(err, "ERRO ISONWHATSAPP")
-			fmt.Println("⛔ -> Numero inválido Erro. ClientId: ", clientId, " | Numero: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo)
-			updateLastError(uuid, true, msgInfo.Attempts, fmt.Sprintln("⛔ -> Numero inválido Erro: ", err))
+			fmt.Println("⛔ -> Número inválido Erro. ClientId: ", clientId, " | Número: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo)
+			updateLastError(uuid, true, msgInfo.Attempts, fmt.Sprintln("⛔ -> Número inválido Erro: ", err))
 			return
 		}
 		if len(validNumber) == 0 {
-			fmt.Println("⛔ -> Numero inválido. ClientId: ", clientId, " | Numero: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo)
-			updateLastError(uuid, false, msgInfo.Attempts, fmt.Sprintln("⛔ -> Numero inválido. ClientId: ", clientId, " | Numero: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo))
+			err = fmt.Errorf("Número inválido\n")
+			fmt.Println("⛔ -> Número inválido. ClientId: ", clientId, " | Número: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo)
+			updateLastError(uuid, false, msgInfo.Attempts, fmt.Sprintln("⛔ -> Número inválido. ClientId: ", clientId, " | Número: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo))
 			return
 		}
 		response := validNumber[0] // Acessa o primeiro item da slicet
 		JID = response.JID
 		IsIn := response.IsIn
 		if !IsIn {
-			fmt.Println("⛔ -> Numero not In WhatsApp. ClientId: ", clientId, " | Numero: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo)
-			updateLastError(uuid, false, msgInfo.Attempts, fmt.Sprintln("⛔ -> Numero not In WhatsApp. ClientId: ", clientId, " | Numero: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo))
+			err = fmt.Errorf("Número não está no WhatsApp\n")
+			fmt.Println("⛔ -> Número not In WhatsApp. ClientId: ", clientId, " | Número: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo)
+			updateLastError(uuid, false, msgInfo.Attempts, fmt.Sprintln("⛔ -> Número not In WhatsApp. ClientId: ", clientId, " | Número: ", msgInfo.Number, " | Mensagem :", msgInfo.Text, "| ID Grupo", id_grupo))
 
 			return
 		}
@@ -669,6 +747,8 @@ func enviarMensagem(uuid string) {
 					QuotedMessage: msg_quote,
 				},
 			}
+		} else {
+			err = fmt.Errorf("Número da mensagem marcada inválido! Erro :%s", err.Error())
 		}
 	}
 	if msgInfo.Edited_id_message != "" {
@@ -696,9 +776,11 @@ func enviarMensagem(uuid string) {
 			} else {
 				fmt.Println("FORMATADO ->", err)
 			}
+		} else {
+			err = fmt.Errorf("Número do contato inválido ! Erro :%s", err.Error())
 		}
 	}
-	retornoEnvio, err := client.SendMessage(ctxWT, JID, message)
+	retornoEnvio, err = client.SendMessage(ctxWT, JID, message)
 	if err != nil {
 		updateLastError(uuid, true, msgInfo.Attempts, fmt.Sprintln("Erro ao enviar mensagem 1°: ", err))
 
@@ -747,8 +829,15 @@ func enviarMensagem(uuid string) {
 		}
 
 	}
+	fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s, JID:%s] ENVIADA \n", retornoEnvio.ID, clientId, msgInfo.Text, msgInfo.Number, JID.User)
+
 	if msgInfo.Focus == "noreply" {
 		fmt.Println("Mensagem não deve ser enviada, focus 'noreply'")
+		removeMensagemPendente(uuid)
+
+		return
+	}
+	if msgInfo.Focus == "disparo_mensagens" {
 		removeMensagemPendente(uuid)
 
 		return
@@ -772,7 +861,6 @@ func enviarMensagem(uuid string) {
 		urlSendMessageEdpoint[sufixo] = baseURL + "chatbot/chat/mensagens/novo-id/"
 	}
 
-	fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s, JID:%s] ENVIADA \n", retornoEnvio.ID, clientId, msgInfo.Text, msgInfo.Number, JID.User)
 	removeMensagemPendente(uuid)
 
 	SendToEndPoint(data, urlSendMessageEdpoint[sufixo])

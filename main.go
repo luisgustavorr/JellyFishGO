@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"sync/atomic"
@@ -35,6 +36,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/pprof"
 	"github.com/gofiber/fiber/v2/utils"
 	"github.com/google/uuid"
+	"github.com/grafana/pyroscope-go"
 	"github.com/joho/godotenv"
 	jsoniter "github.com/json-iterator/go"
 	_ "github.com/mattn/go-sqlite3" // Importação do driver SQLite
@@ -587,7 +589,6 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	var fileName = ""
 	if message.DocumentMessage != nil {
 		fileName = *message.DocumentMessage.FileName
-		fmt.Println("File name encontrado : ", fileName)
 
 	}
 	var id_message string = fullInfoMessage.Info.ID
@@ -901,7 +902,7 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool
 	fmt.Println(len(number))
 	if len(number) < 5 || len(number) == 13 {
 		modules.SaveNumberInCache(number, "", "", clientId, false)
-		return []types.IsOnWhatsAppResponse{}, fmt.Errorf("error : número pequeno/grande demais, inválido para segunda comparação")
+		return []types.IsOnWhatsAppResponse{}, fmt.Errorf("Número inválido (pequeno/grande demais), inválido para segunda comparação")
 	}
 	numberWith9 := number[:4] + "9" + number[4:]
 	fmt.Println("Tentando com 9 adicional", numberWith9)
@@ -1422,6 +1423,41 @@ func main() {
 	// SOFT CAP 10MB : 3.57MB - 3.59MB - 4.48MB
 	// simulateEvents("teste_disparo_shark", moods["active"])
 	// found, number := modules.FindNumberInCache("5537984103402", "teste_disparo_shark")
+	if modules.Desenvolvimento {
+
+		runtime.SetMutexProfileFraction(5)
+		runtime.SetBlockProfileRate(5)
+
+		pyroscope.Start(pyroscope.Config{
+			ApplicationName: "jellyFish.app",
+
+			// replace this with the address of pyroscope server
+			ServerAddress:     "https://profiles-prod-017.grafana.net",
+			BasicAuthUser:     os.Getenv("PYROSCOPE_USER"),
+			BasicAuthPassword: os.Getenv("PYROSCOPE_TOKEN"),
+			// you can disable logging by setting this to nil
+			Logger: nil,
+
+			// you can provide static tags via a map:
+			Tags: map[string]string{"hostname": os.Getenv("HOSTNAME")},
+
+			ProfileTypes: []pyroscope.ProfileType{
+				// these profile types are enabled by default:
+				pyroscope.ProfileCPU,
+				pyroscope.ProfileAllocObjects,
+				pyroscope.ProfileAllocSpace,
+				pyroscope.ProfileInuseObjects,
+				pyroscope.ProfileInuseSpace,
+
+				// these profile types are optional:
+				pyroscope.ProfileGoroutines,
+				pyroscope.ProfileMutexCount,
+				pyroscope.ProfileMutexDuration,
+				pyroscope.ProfileBlockCount,
+				pyroscope.ProfileBlockDuration,
+			},
+		})
+	}
 
 	go cleanUploads()
 	go autoCleanup()
