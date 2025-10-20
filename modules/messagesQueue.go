@@ -748,7 +748,7 @@ func enviarMensagem(uuid string) {
 				},
 			}
 		} else {
-			err = fmt.Errorf("Número da mensagem marcada inválido! Erro :%s", err.Error())
+			// err = fmt.Errorf("Número da mensagem marcada inválido! Erro :%s", err.Error())
 		}
 	}
 	if msgInfo.Edited_id_message != "" {
