@@ -175,10 +175,6 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 	modules.LogMemUsage()
 }
 
-// Carregar configuração inicial
-
-// Pegar Token CSRFT
-
 // Enviar envelope de mensagens para o end point
 var retryEnvelope = map[string]int{}
 
@@ -253,7 +249,7 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 		fmt.Println("Esperando tempo para visualizar !! ", tempoParaVer, " segundos")
 		whatsClient := getClient(data.ClientID)
 		time.Sleep(time.Duration(tempoParaVer) * time.Second)
-		validNumber, err := checkNumberWithRetry(whatsClient, data.Data[0].Mensagem.Number, data.Data[0].Mensagem.IDGrupo != "", data.ClientID)
+		validNumber, err := checkNumberWithRetry(whatsClient, modules.SanitizeNumber(data.Data[0].Mensagem.Number), data.Data[0].Mensagem.IDGrupo != "", data.ClientID)
 		if err != nil {
 			fmt.Println("RRO NO GET CLIENTE", err)
 		} else {
@@ -285,7 +281,6 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 			nonMediaData.Mensagem.Attrs.Audio = "audio_here"
 			dataToLog.Data = append(dataToLog.Data, nonMediaData)
 		}
-
 		if retryEnvelope[envelopeToken] > 3 {
 			b, _ := json.MarshalIndent(dataToLog, "", "  ")
 			body, err := io.ReadAll(resp.Body)
@@ -643,7 +638,6 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			Nome:    name,
 		}
 	}
-
 	messageAttr := MessageAttrs{
 		Edited: edited,
 	}
@@ -698,7 +692,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		if groupInfo != nil {
 			mensagem.NomeGrupo = groupInfo.GroupName.Name
 		}
-		mensagem.IDGrupo = strings.Replace(fullInfoMessage.Info.Chat.String(), "@g.us", "", -1)
+		mensagem.IDGrupo = strings.ReplaceAll(fullInfoMessage.Info.Chat.String(), "@g.us", "")
 	}
 	var focus = getMessageFocus(focusedMessagesKeys, id_message)
 	if focus != "" {
@@ -762,7 +756,6 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 								endIndex++
 							}
 							name += " (" + vcard[startIndex:endIndex] + ")"
-
 						}
 						numero = "sem_whatsapp" + name
 					}
@@ -1537,7 +1530,7 @@ func main() {
 			})
 		}
 
-		validNumber, err := checkNumberWithRetry(client, numberWithOnlyNumbers, false, clientId)
+		validNumber, err := checkNumberWithRetry(client, modules.SanitizeNumber(numberWithOnlyNumbers), false, clientId)
 		if err != nil {
 			fmt.Println("Erro check", err)
 			return c.Status(500).JSON(fiber.Map{
@@ -1580,10 +1573,20 @@ func main() {
 				"message": "Cliente não conectado",
 			})
 		}
-		validNumber, err := client.IsOnWhatsApp([]string{receiverNumber})
+		validNumber, err := checkNumberWithRetry(client, modules.SanitizeNumber(receiverNumber), false, clientId)
 		if err != nil {
 			fmt.Println(err, "ERRO IS ONWHATSAPP")
+			return c.Status(500).JSON(fiber.Map{
+				"message": "Número inválido",
+			})
 		}
+		if len(validNumber) == 0 {
+			fmt.Println(err, "ERRO IS ONWHATSAPP")
+			return c.Status(500).JSON(fiber.Map{
+				"message": "Número inválido",
+			})
+		}
+
 		response := validNumber[0]
 		JID := response.JID
 		messageKey := client.BuildMessageKey(JID, *client.Store.ID, messageID)
@@ -1851,7 +1854,8 @@ func main() {
 						fmt.Printf("Cliente %s pausado", clientIdCopy)
 						return
 					}
-					if evt.Event == "code" {
+					switch evt.Event {
+					case "code":
 						// Gerar o QR Code como imagem PNG
 						fmt.Println("GERANDO QRCODE --------")
 						// Retorne a imagem PNG gerada como resposta
@@ -1895,10 +1899,11 @@ func main() {
 							return
 						}
 						fmt.Printf("Tentativa %d de 5 do cliente %s\n", currentRepeat, clientIdCopy)
-					} else if evt.Event == "success" {
+					case "success":
 						fmt.Println("-------------------AUTENTICADO")
 						return
 					}
+
 				}
 			}(clientId)
 
