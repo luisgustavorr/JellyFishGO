@@ -1423,7 +1423,7 @@ func main() {
 	// SOFT CAP 10MB : 3.57MB - 3.59MB - 4.48MB
 	// simulateEvents("teste_disparo_shark", moods["active"])
 	// found, number := modules.FindNumberInCache("5537984103402", "teste_disparo_shark")
-	if modules.Desenvolvimento {
+	if !modules.Desenvolvimento {
 
 		runtime.SetMutexProfileFraction(5)
 		runtime.SetBlockProfileRate(5)
