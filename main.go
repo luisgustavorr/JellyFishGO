@@ -466,14 +466,20 @@ type EnvelopePayload struct {
 	ClientID string     `json:"clientId,omitempty"`
 	Sender   int        `json:"sender,omitempty"`
 }
+type LocationMessage struct {
+	Latitude  *float64 `json:"latitude,omitempty"`
+	Longitude *float64 `json:"longitude,omitempty"`
+	Thumbnail string   `json:"thumbnail,omitempty"`
+}
 type MessageAttrs struct {
-	FileType      string         `json:"file_type,omitempty"`
-	FileName      string         `json:"file_name,omitempty"`
-	Media         string         `json:"media,omitempty"`
-	Audio         string         `json:"audio,omitempty"`
-	Edited        int            `json:"edited,omitempty"`
-	QuotedMessage *QuotedMessage `json:"quotedMessage,omitempty"`
-	Contact       *ContactInfo   `json:"contact,omitempty"`
+	FileType      string           `json:"file_type,omitempty"`
+	FileName      string           `json:"file_name,omitempty"`
+	Location      *LocationMessage `json:"location,omitempty"`
+	Media         string           `json:"media,omitempty"`
+	Audio         string           `json:"audio,omitempty"`
+	Edited        int              `json:"edited,omitempty"`
+	QuotedMessage *QuotedMessage   `json:"quotedMessage,omitempty"`
+	Contact       *ContactInfo     `json:"contact,omitempty"`
 }
 type QuotedMessage struct {
 	SenderName    string `json:"senderName"`
@@ -516,11 +522,19 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		log.Println("Cliente Whatsmeow é nil")
 		return false
 	}
+	chatID := fullInfoMessage.Info.Chat.String()
+
+	fmt.Printf("Raw chatID received: %s\n", chatID)
+	if fullInfoMessage.NewsletterMeta != nil {
+		fmt.Printf("NewsletterMeta detected: %+v\n", fullInfoMessage.NewsletterMeta)
+	}
+	if fullInfoMessage.SourceWebMsg != nil {
+		fmt.Printf("SourceWebMsg: %+v\n", fullInfoMessage.SourceWebMsg)
+	}
 	// infoINJSON, _ := json.Marshal(fullInfoMessage)
 	// fmt.Println("INFOS RECEBIDAS", string(infoINJSON))
 	// Broadcast (linha de transmissão)
 	var isBroadcast bool = fullInfoMessage.SourceWebMsg.GetBroadcast()
-	chatID := fullInfoMessage.Info.Chat.String()
 	// Status (mensagem no status)
 	var isStatus bool = strings.Contains(chatID, "status")
 
@@ -532,12 +546,11 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		fullInfoMessage.Message.GetPollCreationMessageV4() != nil ||
 		fullInfoMessage.Message.GetPollCreationMessageV5() != nil
 
-	// Localização
-	var isLocation bool = fullInfoMessage.Message.LocationMessage != nil
-	// Comunidade (geralmente terminam com "@g.us" e possuem 'IsCommunityAnnounceMsg')
-	// 120363167775174375@newsletter
+		// Localização
+		// Comunidade (geralmente terminam com "@g.us" e possuem 'IsCommunityAnnounceMsg')
+		// 120363167775174375@newsletter
 
-	var isNewsLetter bool = strings.HasSuffix(chatID, "@newsletter") || fullInfoMessage.NewsletterMeta != nil
+	var isNewsLetter bool = strings.HasSuffix(chatID, "@newsletter") && fullInfoMessage.NewsletterMeta == nil
 	var isCommunityAnnounce bool = fullInfoMessage.Info.Multicast && strings.HasSuffix(chatID, "@g.us")
 	// Mensagem de protocolo (ex: deletada, chamada, etc.)
 	var isIgnoredProtocolMsg bool
@@ -553,9 +566,10 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 
 	// Outro tipo inesperado? Mensagem sem corpo (?)
 	// var isEmptyMessage bool = fullInfoMessage.Message == nil
+	var isLocation bool = fullInfoMessage.Message.LocationMessage != nil
 
-	if isBroadcast || isStatus || isPoll || isLocation || isCommunityAnnounce || isIgnoredProtocolMsg || isNewsLetter {
-		fmt.Printf("Ignorando mensagem chatID : '%s' do tipo especial: isBroadcast ? %t | isStatus ? %t | isPoll ? %t | isLocation ? %t | isCommunityAnnounce ? %t | isProtocolMsg ? %t | isNewsLetter ? %t\n", chatID, isBroadcast, isStatus, isPoll, isLocation, isCommunityAnnounce, isIgnoredProtocolMsg, isNewsLetter)
+	if isBroadcast || isStatus || isPoll || isCommunityAnnounce || isIgnoredProtocolMsg || isNewsLetter {
+		fmt.Printf("Ignorando mensagem chatID : '%s' (%s) do tipo especial: isBroadcast ? %t | isStatus ? %t | isPoll ? %t | isLocation ? %t | isCommunityAnnounce ? %t | isProtocolMsg ? %t | isNewsLetter ? %t\n", chatID, clientId, isBroadcast, isStatus, isPoll, isLocation, isCommunityAnnounce, isIgnoredProtocolMsg, isNewsLetter)
 		return false
 	}
 	var contactMessage *waE2E.ContactMessage = fullInfoMessage.Message.GetContactMessage()
@@ -610,6 +624,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		id_message = editedInfo
 	}
 	var contactObject ContactInfo
+
 	if contactMessage != nil {
 		var name string = *contactMessage.DisplayName
 		var vcard string = contactMessage.GetVcard()
@@ -641,6 +656,28 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	}
 	messageAttr := MessageAttrs{
 		Edited: edited,
+	}
+	if message.GetLiveLocationMessage() != nil {
+		location := message.GetLiveLocationMessage()
+		teste, _ := json.MarshalIndent(location, " ", "")
+		fmt.Println(string(teste))
+		base64Img := base64.StdEncoding.EncodeToString(location.JPEGThumbnail)
+		messageAttr.Location = &LocationMessage{
+			Latitude:  location.DegreesLatitude,
+			Longitude: location.DegreesLongitude,
+			Thumbnail: base64Img,
+		}
+	}
+	if isLocation {
+		location := message.GetLocationMessage()
+		teste, _ := json.MarshalIndent(location, " ", "")
+		fmt.Println(string(teste))
+		base64Img := base64.StdEncoding.EncodeToString(location.JPEGThumbnail)
+		messageAttr.Location = &LocationMessage{
+			Latitude:  location.DegreesLatitude,
+			Longitude: location.DegreesLongitude,
+			Thumbnail: base64Img,
+		}
 	}
 	if quotedMessageID != "" {
 		fmt.Println("ADICIONANDO QUOTE")
@@ -733,7 +770,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		//save aqui
 		modules.SaveNumberInCache(modules.SanitizeNumber(sender.User), sender.User, sender.Server, clientId, true)
 
-		if media != "" || text != "" || contactMessage != nil || contactMessageArray != nil {
+		if media != "" || text != "" || contactMessage != nil || contactMessageArray != nil || isLocation {
 			if contactMessageArray != nil {
 				for _, contactMessage := range contactMessageArray.Contacts {
 
@@ -994,6 +1031,7 @@ func tryConnecting(clientId string) *whatsmeow.Client {
 			fmt.Println("Cliente " + clientId + " deslogou do WhatsApp!")
 		case *events.Message:
 			if strings.Contains(clientId, "chat") {
+
 				handleMessage(v, clientId, client)
 			}
 		}
@@ -1642,6 +1680,18 @@ func main() {
 		desconctarCliente(clientId)
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Cliente desconectado",
+		})
+	})
+	r.Post("/deleteBatch", func(c *fiber.Ctx) error {
+		id_batch := utils.CopyString(c.FormValue("id_batch"))
+		err := modules.CancelMessages(id_batch, true)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{
+				"message": err.Error(),
+			})
+		}
+		return c.Status(200).JSON(fiber.Map{
+			"message": "Mensagem apagada com sucesso !",
 		})
 	})
 	r.Get("/", func(c *fiber.Ctx) error {

@@ -24,6 +24,9 @@ import (
 
 var Re0to9 = regexp.MustCompile("[0-9]+")
 
+//OFICIAL
+
+// OFICIAL
 type GenericPayload struct {
 	Evento   string      `json:"evento,omitempty"`
 	ClientID string      `json:"clientId,omitempty"`
