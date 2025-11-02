@@ -1456,6 +1456,29 @@ func UpdateMemoryLimit(activeConnections int) {
 func main() {
 	teste, _ := modules.GetStatus("teste_disparo_chat")
 	fmt.Println(teste)
+	dir := "./clients_db"
+
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		fmt.Printf("Erro ao ler clientes: %v\n", err)
+		return
+	}
+
+	for _, file := range files {
+		if !file.IsDir() {
+			path := filepath.Join(dir, file.Name())
+
+			err := os.Remove(path)
+			if err != nil {
+				fmt.Printf("Erro ao excluir %s: %v\n", path, err)
+			} else {
+				fmt.Println("Removido:", path)
+			}
+		}
+	}
+
+	fmt.Println("🧹 All .db files removed.")
+
 	//TANTO NO TESTE SEM E NO TESTE COM 4MB, NO ÚLTIMO TESTE HOUVE UM FLUXO MAIOR DE MENSAGENS, POR ISSO O CONSUMO ELEVADO
 	//1° OBS (2 TESTES FEITOS) : COM O SOFT CAP O GC ESTÁ LIMPANDO MAIS RÁPIDO A HEAP, FAZENDO O CONSUMO FICAR ESTÁTICO EM ~4.5(caindo as vezes para 4.3) JÁ SEM O SOFT CAP ELE DEIXA ACUMULAR MAIS
 	//DESSA FORMA FICAVA SUBINDO. EX : 4->4.18->5->5.05->5.28
@@ -1529,7 +1552,7 @@ func main() {
 	}()
 
 	modules.RemoveExpiredCaches()
-	err := godotenv.Load()
+	err = godotenv.Load()
 	if err != nil {
 		log.Fatal("Erro ao carregar o arquivo .env")
 	}
