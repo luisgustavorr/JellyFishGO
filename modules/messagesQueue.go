@@ -606,7 +606,7 @@ func enviarMensagem(uuid string) {
 	mainCtx := context.Background()
 	// ctx := context.Background()
 	// 01-mes 02-dia 2006-ano 03-hora 04-min 05-seg
-	ctxWT, cancel := context.WithTimeout(mainCtx, 15000*time.Millisecond)
+	ctxWT, cancel := context.WithTimeout(mainCtx, 12*time.Second)
 	defer cancel()
 	var clientId string
 	msgInfo := MessageIndividual{}
