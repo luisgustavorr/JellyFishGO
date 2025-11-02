@@ -572,13 +572,20 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		fmt.Printf("Ignorando mensagem chatID : '%s' (%s) do tipo especial: isBroadcast ? %t | isStatus ? %t | isPoll ? %t | isLocation ? %t | isCommunityAnnounce ? %t | isProtocolMsg ? %t | isNewsLetter ? %t\n", chatID, clientId, isBroadcast, isStatus, isPoll, isLocation, isCommunityAnnounce, isIgnoredProtocolMsg, isNewsLetter)
 		return false
 	}
+	message := fullInfoMessage.Message
+	var text string = getText(message)
+	if text == "get_status" {
+		var MessageID []types.MessageID = []types.MessageID{fullInfoMessage.Info.ID}
+		client.MarkRead(MessageID, time.Now(), fullInfoMessage.Info.Chat, fullInfoMessage.Info.Sender, types.ReceiptTypeRead)
+		modules.VerifyStatus(fullInfoMessage.Info.Chat.ToNonAD(), clientId, client)
+
+		return true
+	}
 	var contactMessage *waE2E.ContactMessage = fullInfoMessage.Message.GetContactMessage()
 	var contactMessageArray *waE2E.ContactsArrayMessage = fullInfoMessage.Message.GetContactsArrayMessage()
-	message := fullInfoMessage.Message
 
 	var groupMessage bool = strings.Contains(fullInfoMessage.Info.Chat.String(), "@g.us")
 	var contextInfo = message.ExtendedTextMessage.GetContextInfo()
-	var text string = getText(message)
 
 	var senderName string = fullInfoMessage.Info.PushName
 	var fromMe = fullInfoMessage.Info.IsFromMe
@@ -870,6 +877,8 @@ func autoConnection() {
 		}
 	}
 	// Fase 2: Processamento individual com lock curto
+	teste, _ := json.MarshalIndent(clientIDs, " ", "")
+	fmt.Println("DBs : ", string(teste))
 	for _, clientID := range clientIDs {
 		clientsMutex.Lock()
 		_, exists := clientMap[clientID]
@@ -965,7 +974,6 @@ func checkNumberWithRetry(client *whatsmeow.Client, number string, de_grupo bool
 // Tenta reconectar o WhatsApp do cliente
 func tryConnecting(clientId string) *whatsmeow.Client {
 	context := context.Background()
-
 	dbLog := waLog.Stdout("Database", "INFO", true)
 	container, err := sqlstore.New(context, "sqlite3", "file:./clients_db/"+clientId+".db?_foreign_keys=on", dbLog)
 	if err != nil {
@@ -978,9 +986,7 @@ func tryConnecting(clientId string) *whatsmeow.Client {
 		return nil
 	}
 	clientLog := waLog.Stdout("Client", "ERROR", true)
-
 	client := whatsmeow.NewClient(deviceStore, clientLog)
-
 	avaiableProxyServer, found := modules.GetServerByClientId(clientId)
 	if !found {
 		fmt.Printf("[PROXY] -> Não existem servidores disponíveis para o cliente : %s \n", clientId)
@@ -1448,6 +1454,8 @@ func UpdateMemoryLimit(activeConnections int) {
 }
 
 func main() {
+	teste, _ := modules.GetStatus("teste_disparo_chat")
+	fmt.Println(teste)
 	//TANTO NO TESTE SEM E NO TESTE COM 4MB, NO ÚLTIMO TESTE HOUVE UM FLUXO MAIOR DE MENSAGENS, POR ISSO O CONSUMO ELEVADO
 	//1° OBS (2 TESTES FEITOS) : COM O SOFT CAP O GC ESTÁ LIMPANDO MAIS RÁPIDO A HEAP, FAZENDO O CONSUMO FICAR ESTÁTICO EM ~4.5(caindo as vezes para 4.3) JÁ SEM O SOFT CAP ELE DEIXA ACUMULAR MAIS
 	//DESSA FORMA FICAVA SUBINDO. EX : 4->4.18->5->5.05->5.28

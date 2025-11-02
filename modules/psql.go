@@ -63,7 +63,7 @@ func ConnectPsql() (*sql.DB, error) {
 		sshPassword := os.Getenv("SSH_DB_PASSWORD")
 		localPort := os.Getenv("LOCAL_PORT")
 		if localPort == "" {
-			localPort = "15432" // Porta local padrão para o túnel
+			localPort = "15438" // Porta local padrão para o túnel
 		}
 
 		// Configuração do cliente SSH
