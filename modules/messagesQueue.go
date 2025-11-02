@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"log"
 	"mime/multipart"
 	"net/http"
@@ -411,7 +412,18 @@ func SendToEndPoint(data SentMessagePayload, url string) {
 		return
 	}
 	defer resp.Body.Close()
-	fmt.Println(url)
+	if resp.StatusCode == 403 {
+		body := []byte{}
+		if resp != nil {
+			body, err = io.ReadAll(resp.Body)
+			if err != nil {
+				return
+			}
+		}
+
+		fmt.Println("🌐 -> Resposta Status: [", resp.Status, "] | message : ", string(body), " | evento : ", data.Evento, " | clientId :", data.ClientID)
+		return
+	}
 	fmt.Println("🌐 -> Resposta Status: [", resp.Status, "] | evento : ", data.Evento, " | clientId :", data.ClientID)
 }
 func SendRelatorioToEndPoint(data RelatorioMensagensPayload, url string) {
@@ -482,6 +494,18 @@ func SendGenericToEndPoint(data GenericPayload, url string) {
 	}
 	defer resp.Body.Close()
 	fmt.Println(url)
+	if resp.StatusCode == 403 {
+		body := []byte{}
+		if resp != nil {
+			body, err = io.ReadAll(resp.Body)
+			if err != nil {
+				return
+			}
+		}
+
+		fmt.Println("🌐 -> Resposta Status: [", resp.Status, "] | message : ", string(body), " | evento : ", data.Evento, " | clientId :", data.ClientID)
+		return
+	}
 	fmt.Println("🌐 -> Resposta Status: [", resp.Status, "] | evento : ", data.Evento, " | clientId :", data.ClientID)
 }
 
