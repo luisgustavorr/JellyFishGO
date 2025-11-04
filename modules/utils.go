@@ -101,22 +101,26 @@ func Difference(a, b []string) (diff []string) {
 	return
 }
 func SetStatus(client *whatsmeow.Client, status string, JID types.JID) {
+	ctx := context.Background()
+	ctxWt, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	if status == "conectado" {
 		typePresence := types.PresenceAvailable
-		client.SendPresence(typePresence)
+		client.SendPresence(ctxWt, typePresence)
 		return
 	}
 	if status == "desconectado" {
 		typePresence := types.PresenceUnavailable
-		client.SendPresence(typePresence)
+
+		client.SendPresence(ctxWt, typePresence)
 		return
 	}
 	if status == "digitando" {
-		client.SendChatPresence(JID, types.ChatPresenceComposing, "")
+		client.SendChatPresence(ctxWt, JID, types.ChatPresenceComposing, "")
 		return
 	}
 	if status == "gravando" {
-		client.SendChatPresence(JID, types.ChatPresence(types.ChatPresenceMediaAudio), "")
+		client.SendChatPresence(ctxWt, JID, types.ChatPresence(types.ChatPresenceMediaAudio), "")
 		return
 	}
 }
@@ -242,6 +246,16 @@ var bufferPool = sync.Pool{
 		s := make([]byte, 0, 2<<20) // 20mb
 		return &s                   // Retorna PONTEIRO para slice
 	},
+}
+
+func GetContents(dir string) ([]string, error) {
+	d, err := os.Open(dir)
+	if err != nil {
+		return []string{}, err
+	}
+	defer d.Close()
+	names, err := d.Readdirnames(-1)
+	return names, err
 }
 
 func getBuffer(size int) ([]byte, func()) {

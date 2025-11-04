@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"regexp"
 	"runtime"
 	"runtime/debug"
@@ -68,7 +67,10 @@ func getGroupProfilePicture(client *whatsmeow.Client, groupJID types.JID) *types
 	if cached, ok := groupPicCache.Load(groupJID); ok {
 		return cached.(*types.ProfilePictureInfo)
 	}
-	pictureInfo, err := client.GetProfilePictureInfo(groupJID, nil)
+	ctx := context.Background()
+	ctxWt, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	pictureInfo, err := client.GetProfilePictureInfo(ctxWt, groupJID, nil)
 	if err != nil {
 		fmt.Printf("Erro ao obter foto do grupo: %v \n", err)
 		return nil
@@ -259,7 +261,10 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 				JID := validNumber[0].JID
 				for _, messageToSee := range data.Data {
 					var MessageID []types.MessageID = []types.MessageID{messageToSee.Mensagem.ID}
-					whatsClient.MarkRead(MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
+					ctx := context.Background()
+					ctxWt, cancel := context.WithTimeout(ctx, 10*time.Second)
+					defer cancel()
+					whatsClient.MarkRead(ctxWt, MessageID, time.Now(), JID, JID, types.ReceiptTypeRead)
 				}
 			}
 
@@ -576,7 +581,10 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	var text string = getText(message)
 	if text == "get_status" {
 		var MessageID []types.MessageID = []types.MessageID{fullInfoMessage.Info.ID}
-		client.MarkRead(MessageID, time.Now(), fullInfoMessage.Info.Chat, fullInfoMessage.Info.Sender, types.ReceiptTypeRead)
+		ctx := context.Background()
+		ctxWt, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		client.MarkRead(ctxWt, MessageID, time.Now(), fullInfoMessage.Info.Chat, fullInfoMessage.Info.Sender, types.ReceiptTypeRead)
 		modules.VerifyStatus(fullInfoMessage.Info.Chat.ToNonAD(), clientId, client)
 
 		return true
@@ -625,7 +633,11 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		senderNumber = fullInfoMessage.Info.Chat.User
 	}
 	params := &whatsmeow.GetProfilePictureParams{}
-	profilePic, _ := client.GetProfilePictureInfo(JID, params)
+	ctxP := context.Background()
+
+	ctxWt, cancel := context.WithTimeout(ctxP, 10*time.Second)
+	defer cancel()
+	profilePic, _ := client.GetProfilePictureInfo(ctxWt, JID, params)
 	if editedInfo != "" {
 		edited = 1
 		id_message = editedInfo
@@ -729,7 +741,8 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	}
 	if groupMessage {
 		groupJID := fullInfoMessage.Info.Chat
-		groupInfo, _ := client.GetGroupInfo(groupJID)
+		ctx := context.Background()
+		groupInfo, _ := client.GetGroupInfo(ctx, groupJID)
 		groupImage := getGroupProfilePicture(client, groupJID)
 		if groupImage != nil {
 			mensagem.ImgGrupo = groupImage.URL
@@ -903,7 +916,10 @@ func isOnWhatsAppSafe(client *whatsmeow.Client, numbers []string) ([]types.IsOnW
 	if client == nil || !client.IsConnected() || !client.IsLoggedIn() {
 		return nil, fmt.Errorf("cliente não conectado")
 	}
-	return client.IsOnWhatsApp(numbers)
+	ctx := context.Background()
+	ctxWt, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	return client.IsOnWhatsApp(ctxWt, numbers)
 }
 
 // Verifica se o número está no WhatsApp com tentativas
@@ -983,7 +999,7 @@ func tryConnecting(clientId string) *whatsmeow.Client {
 		fmt.Println("erro pegandoDevice", err)
 		return nil
 	}
-	clientLog := waLog.Stdout("Client", "ERROR", true)
+	clientLog := waLog.Stdout("Client - "+clientId, "ERROR", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 	avaiableProxyServer, found := modules.GetServerByClientId(clientId)
 	if !found {
@@ -1412,29 +1428,6 @@ func autoCleanup() {
 
 }
 
-func cleanUploads() { // limpar arquivos do uploads
-	dir := "./uploads/"
-	arquivosAindaSalvos := modules.GetFilesToBeSent()
-	arquivosNaPasta, _ := GetContents(dir)
-	diff := modules.Difference(arquivosNaPasta, arquivosAindaSalvos)
-	fmt.Println(arquivosNaPasta, arquivosAindaSalvos, diff)
-	for _, name := range diff {
-		err := os.RemoveAll(filepath.Join(dir, name))
-		if err != nil {
-		}
-	}
-	// RemoveContents("./uploads/")
-}
-func GetContents(dir string) ([]string, error) {
-	d, err := os.Open(dir)
-	if err != nil {
-		return []string{}, err
-	}
-	defer d.Close()
-	names, err := d.Readdirnames(-1)
-	return names, err
-}
-
 var lastLimit int64 = -1
 
 func UpdateMemoryLimit(activeConnections int) {
@@ -1503,7 +1496,7 @@ func main() {
 		})
 	}
 
-	go cleanUploads()
+	go modules.CleanUploads()
 	go autoCleanup()
 
 	signalCh := make(chan os.Signal, 1)
@@ -1730,6 +1723,7 @@ func main() {
 		noTimeout := utils.CopyString(c.FormValue("noTimeout"))
 		sendContact := utils.CopyString(c.FormValue("contact"))
 		infoObjects := utils.CopyString(c.FormValue("infoObjects"))
+		fmt.Println(infoObjects)
 		dataProgramada := utils.CopyString(c.FormValue("dataProgramada"))
 		timestamp := time.Now().Unix()
 		if dataProgramada != "" {
@@ -1809,7 +1803,6 @@ func main() {
 	})
 	r.Post("/getQRCode", func(c *fiber.Ctx) error {
 		ctx := context.Background()
-
 		// Recupera o corpo da requisição e faz a bind para a estrutura de dados
 		sendEmail := utils.CopyString(c.FormValue("notifyEmail"))
 		clientId := utils.CopyString(c.FormValue("clientId"))
@@ -1828,7 +1821,6 @@ func main() {
 		clientsMutex.Unlock() // Libera o mutex após verificar o clientId
 		qrCode := c.FormValue("qrCode") == "true"
 		dbLog := waLog.Stdout("Database", "INFO", true)
-
 		container, err := sqlstore.New(ctx, "sqlite3", "file:./clients_db/"+clientId+".db?_foreign_keys=on", dbLog)
 		if err != nil {
 			fmt.Println(err)
@@ -1843,7 +1835,7 @@ func main() {
 		} else if strings.Contains(clientId, "_shark") {
 			store.DeviceProps = &waCompanionReg.DeviceProps{Os: proto.String("Shark Business")}
 		}
-		clientLog := waLog.Stdout("Client", "ERROR", true)
+		clientLog := waLog.Stdout("Client - "+clientId, "ERROR", true)
 		client := whatsmeow.NewClient(deviceStore, clientLog)
 
 		client.EnableAutoReconnect = true

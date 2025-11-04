@@ -10,6 +10,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -145,10 +146,11 @@ func (s *Send_contact) Scan(value interface{}) error {
 }
 
 type Statements struct {
-	GetPendingByUUID    *sql.Stmt
-	DeletePendingByUUID *sql.Stmt
-	InsertUUID          *sql.Stmt
-	selectPendingStmt   *sql.Stmt
+	GetPendingByUUID         *sql.Stmt
+	DeletePendingByUUID      *sql.Stmt
+	InsertUUID               *sql.Stmt
+	selectPendingStmt        *sql.Stmt
+	selectPendingByGroupStmt *sql.Stmt
 }
 
 type Database struct {
@@ -201,6 +203,23 @@ RETURNING p.uuid;`)
 		log.Fatal(err)
 
 	}
+	selectPendingUUIDByGroupStmt, err := db.Prepare(`
+	SELECT coalesce( COUNT(uuid),0)
+  FROM pendingMessages p
+  WHERE 
+  data_desejada >= $1
+  and agendada = false
+    AND indev = $2
+    AND attempts < $3
+    AND should_try_again = true
+    AND p.idbatch = $4
+group by p.idbatch
+limit 1
+`)
+	if err != nil {
+		log.Fatal(err)
+
+	}
 	insertStmt, err := db.Prepare(`
 	INSERT INTO pendingMessages (
 		uuid, idBatch, clientId, text, number, data_desejada, documento_padrao, 
@@ -243,6 +262,7 @@ RETURNING p.uuid;`)
 	dbMensagensPendentes.Stmts.DeletePendingByUUID = deleteStmt
 	dbMensagensPendentes.Stmts.InsertUUID = insertStmt
 	dbMensagensPendentes.Stmts.selectPendingStmt = selectPendingStmt
+	dbMensagensPendentes.Stmts.selectPendingByGroupStmt = selectPendingUUIDByGroupStmt
 	dbMensagensPendentes.DB = db
 	return dbMensagensPendentes
 }
@@ -575,6 +595,18 @@ func CancelMessages(id string, batch bool) error {
 }
 
 // pollDueMessages claims due messages and enqueues their UUIDs for workers.
+func GetRemainingMessages(idBatch string) int {
+	db := connectToMessagesQueueDB()
+	count := 0
+	err := db.Stmts.selectPendingByGroupStmt.QueryRow(time.Now().Unix(), Desenvolvimento, maxRetries, idBatch).Scan(&count)
+	if err != nil {
+		log.Println("Erro ao buscar mensagens faltando:", err)
+		return count
+	}
+	fmt.Println(count)
+
+	return count
+}
 func pollDueMessages(batchSize int) {
 	db := connectToMessagesQueueDB()
 	rows, err := db.Stmts.selectPendingStmt.Query(time.Now().Unix(), Desenvolvimento, maxRetries, batchSize)
@@ -623,6 +655,30 @@ func updateLastError(uuid string, shouldTryAgain bool, attempts int32, lastError
 	}
 
 	return nil
+}
+func changeFileName(idbatch string, fileName string) error {
+	db := connectToMessagesQueueDB()
+	_, err := db.DB.Exec(`UPDATE pendingMessages
+  SET documento_padrao = $1 WHERE idbatch = $2`, fileName, idbatch)
+	if err != nil {
+		return err
+
+	}
+	return nil
+}
+
+func CleanUploads() { // limpar arquivos do uploads
+	dir := "./uploads/"
+	arquivosAindaSalvos := GetFilesToBeSent()
+	arquivosNaPasta, _ := GetContents(dir)
+	diff := Difference(arquivosNaPasta, arquivosAindaSalvos)
+	fmt.Println(arquivosNaPasta, arquivosAindaSalvos, diff)
+	for _, name := range diff {
+		err := os.RemoveAll(filepath.Join(dir, name))
+		if err != nil {
+		}
+	}
+	// RemoveContents("./uploads/")
 }
 func enviarMensagem(uuid string) {
 
@@ -690,6 +746,7 @@ func enviarMensagem(uuid string) {
 	newNameFile := ""
 	extraMessage := false
 	if msgInfo.Documento_padrao != "" {
+		fmt.Println("Arquivo : ", msgInfo.Documento_padrao)
 		message, newNameFile, extraMessage = PrepararMensagemArquivo(msgInfo.Text, message, msgInfo.Documento_padrao, client, clientId, msg, uuid)
 
 	}
@@ -716,13 +773,12 @@ func enviarMensagem(uuid string) {
 			lastIndex := strings.LastIndex(clientId, "_")
 			sufixo := clientId[lastIndex+1:]
 			urlToSend := ""
-			if urlSendMessageEdpoint[sufixo] == "" {
-				baseURL := strings.Split(MapOficial[sufixo], "chatbot")[0]
-				if strings.Contains(baseURL, "disparo") {
-					baseURL = strings.Split(MapOficial[sufixo], "disparo")[0]
-				}
-				urlToSend = baseURL + "disparo/v2/retorno-disparo/"
+			baseURL := strings.Split(MapOficial[sufixo], "chatbot")[0]
+			if strings.Contains(baseURL, "disparo") {
+				baseURL = strings.Split(MapOficial[sufixo], "disparo")[0]
 			}
+			urlToSend = baseURL + "disparo/v2/retorno-disparo/"
+			fmt.Println("ULR Q TA MANDANDO : ", urlToSend, sufixo)
 			removeMensagemPendente(uuid)
 
 			SendRelatorioToEndPoint(data, urlToSend)
@@ -815,8 +871,17 @@ func enviarMensagem(uuid string) {
 		return
 	} else {
 		if newNameFile != "" {
-			os.Remove(newNameFile)
+			changeFileName(msgInfo.IdBatch, newNameFile)
+			defer func(idbatch string) {
+				if GetRemainingMessages(idbatch) == 0 {
+					os.Remove(newNameFile)
+
+				}
+
+			}(msgInfo.IdBatch)
 		}
+
+		//6PF365PCL6MN5UUFBAAORJUPQ_chat3d0e59e6-ccef-43ee-ab2b-084dbeb0878e_!-!_Captura de tela de 2025-09-01 20-49-57
 		if extraMessage {
 			retornoEnvio2, err := client.SendMessage(ctxWT, JID, &waE2E.Message{
 				ExtendedTextMessage: &waE2E.ExtendedTextMessage{
