@@ -746,7 +746,7 @@ func enviarMensagem(uuid string) {
 	newNameFile := ""
 	extraMessage := false
 	if msgInfo.Documento_padrao != "" {
-		fmt.Println("Arquivo : ", msgInfo.Documento_padrao)
+		fmt.Println("[", uuid, "]-> Arquivo : ", msgInfo.Documento_padrao)
 		message, newNameFile, extraMessage = PrepararMensagemArquivo(msgInfo.Text, message, msgInfo.Documento_padrao, client, clientId, msg, uuid)
 
 	}
@@ -785,7 +785,7 @@ func enviarMensagem(uuid string) {
 		}()
 	}
 	if id_grupo != "" {
-		JID = types.JID{User: strings.Replace(id_grupo, "@g.us", "", -1), Server: types.GroupServer}
+		JID = types.JID{User: strings.ReplaceAll(id_grupo, "@g.us", ""), Server: types.GroupServer}
 	} else {
 		if err != nil {
 			fmt.Println(err, "ERRO ISONWHATSAPP")
@@ -919,10 +919,8 @@ func enviarMensagem(uuid string) {
 			}
 			SendToEndPoint(data, urlSendMessageEdpoint[sufixo])
 		}
-
 	}
-	fmt.Printf("📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s, JID:%s] ENVIADA \n", retornoEnvio.ID, clientId, msgInfo.Text, msgInfo.Number, JID.User)
-
+	fmt.Println("[", uuid, "]📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s, JID:%s] ENVIADA \n", retornoEnvio.ID, clientId, msgInfo.Text, msgInfo.Number, JID.User)
 	if msgInfo.Focus == "noreply" {
 		fmt.Println("Mensagem não deve ser enviada, focus 'noreply'")
 		removeMensagemPendente(uuid)

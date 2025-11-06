@@ -41,9 +41,7 @@ import (
 	_ "github.com/mattn/go-sqlite3" // Importação do driver SQLite
 	"github.com/skip2/go-qrcode"
 	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/proto/waCompanionReg"
 	"go.mau.fi/whatsmeow/proto/waE2E"
-	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -51,7 +49,6 @@ import (
 	_ "golang.org/x/image/webp" // Importa suporte para WebP
 	"golang.org/x/net/proxy"
 	"golang.org/x/time/rate"
-	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -1723,7 +1720,6 @@ func main() {
 		noTimeout := utils.CopyString(c.FormValue("noTimeout"))
 		sendContact := utils.CopyString(c.FormValue("contact"))
 		infoObjects := utils.CopyString(c.FormValue("infoObjects"))
-		fmt.Println(infoObjects)
 		dataProgramada := utils.CopyString(c.FormValue("dataProgramada"))
 		timestamp := time.Now().Unix()
 		if dataProgramada != "" {
@@ -1829,11 +1825,6 @@ func main() {
 		if err != nil {
 
 			fmt.Println(err)
-		}
-		if strings.Contains(clientId, "_chat") {
-			store.DeviceProps = &waCompanionReg.DeviceProps{Os: proto.String("Shark Business(ChatBot)")}
-		} else if strings.Contains(clientId, "_shark") {
-			store.DeviceProps = &waCompanionReg.DeviceProps{Os: proto.String("Shark Business")}
 		}
 		clientLog := waLog.Stdout("Client - "+clientId, "ERROR", true)
 		client := whatsmeow.NewClient(deviceStore, clientLog)
