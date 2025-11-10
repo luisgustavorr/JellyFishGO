@@ -799,6 +799,7 @@ func enviarMensagem(uuid string) {
 
 	msgInfo.Number = SanitizeNumber(msgInfo.Number)
 	client := actions.GetClient(clientId)
+	defer SetStatus(client, "conectado", types.JID{})
 	if client == nil {
 		client = actions.TryConnecting(clientId)
 		if client == nil {
