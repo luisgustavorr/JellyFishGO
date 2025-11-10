@@ -376,7 +376,7 @@ func AddMensagemPendente(sendInfo SendMessageInfo) {
 			if textLen > 20 {
 				textLen = 20
 			} else if textLen < 5 {
-				textLen = 5
+				textLen = 2
 			}
 			lastDuration = int32(textLen)
 			now += int64(textLen + 1)
@@ -391,7 +391,7 @@ func AddMensagemPendente(sendInfo SendMessageInfo) {
 			if textLen > 20 {
 				textLen = 20
 			} else if textLen < 5 {
-				textLen = 5
+				textLen = 2
 			}
 			lastDuration = int32(textLen)
 			totalDelay = int(textLen) + totalDelay
