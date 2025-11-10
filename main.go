@@ -1760,14 +1760,22 @@ func main() {
 		// Deserializando o JSON para o map
 		err = json.Unmarshal([]byte(infoObjects), &resultStructed)
 		if err != nil {
+
 			fmt.Printf("Erro ao converter JSON structed: %v", err)
+			return c.Status(500).JSON(fiber.Map{
+				"message": "JSON infoObjects Inválido",
+			})
 		}
 		// fmt.Println(resultStructed)
 		sendContactStructed := modules.Send_contact{}
 		if sendContact != "" {
 			err = json.Unmarshal([]byte(sendContact), &sendContactStructed)
 			if err != nil {
+
 				fmt.Printf("Erro ao converter JSON structed: %v", err)
+				return c.Status(500).JSON(fiber.Map{
+					"message": "Objeto contact inválido",
+				})
 			}
 		}
 		// go processarGrupoMensagens(sendMessageInfo{ClientIdLocal: clientId,

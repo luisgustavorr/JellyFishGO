@@ -94,6 +94,7 @@ type MessageIndividual struct {
 	Send_contact      *Send_contact   `json:"sendContact,omitempty"`
 	Documento_padrao  string          `json:"documento_padrao"`
 	Attempts          int32           `json:"attempts"`
+	Typing_duration   int32           `json:"typing_duration"`
 }
 
 var dbMensagensPendentes *Database
@@ -151,6 +152,7 @@ type Statements struct {
 	InsertUUID               *sql.Stmt
 	selectPendingStmt        *sql.Stmt
 	selectPendingByGroupStmt *sql.Stmt
+	selectTypingMessages     *sql.Stmt
 }
 
 type Database struct {
@@ -220,12 +222,27 @@ limit 1
 		log.Fatal(err)
 
 	}
+	selectTypingMessages, err := db.Prepare(`
+	WITH cte AS (
+SELECT clientId, number,typing_duration,uuid FROM pendingMessages
+		WHERE data_desejada-typing_duration <= $1 AND indev = $2 AND typing = false
+		  LIMIT $3
+)
+UPDATE pendingMessages p
+SET typing = true,status = 'Typing...'
+FROM cte
+WHERE p.uuid = cte.uuid
+RETURNING p.clientId, p.number,p.typing_duration,p.uuid,p.id_grupo;
+`)
+	if err != nil {
+		log.Fatal(err)
+
+	}
 	insertStmt, err := db.Prepare(`
 	INSERT INTO pendingMessages (
 		uuid, idBatch, clientId, text, number, data_desejada, documento_padrao, 
-		quoted_message, edited_id_message, focus, id_grupo, send_contact,indev,should_try_again,agendada,attempts
-	)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,$13,true,false,0)
+		quoted_message, edited_id_message, focus, id_grupo, send_contact,indev,should_try_again,agendada,attempts,typing_duration)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,$13,true,false,0,$14)
 	ON CONFLICT (uuid) DO UPDATE SET
 		idBatch = EXCLUDED.idBatch,
 		clientId = EXCLUDED.clientId,
@@ -241,7 +258,8 @@ limit 1
 		indev = EXCLUDED.indev,
 		should_try_again = EXCLUDED.should_try_again,
 		agendada = EXCLUDED.agendada,
-		attempts = EXCLUDED.attempts;
+		attempts = EXCLUDED.attempts,
+		typing_duration = EXCLUDED.typing_duration;
 `)
 	if err != nil {
 		log.Fatal("Erro preparando insertStmt:", err)
@@ -258,6 +276,7 @@ limit 1
 	dbMensagensPendentes = &Database{
 		Stmts: Statements{},
 	}
+	dbMensagensPendentes.Stmts.selectTypingMessages = selectTypingMessages
 	dbMensagensPendentes.Stmts.GetPendingByUUID = selectStmt
 	dbMensagensPendentes.Stmts.DeletePendingByUUID = deleteStmt
 	dbMensagensPendentes.Stmts.InsertUUID = insertStmt
@@ -288,15 +307,61 @@ func insertMessage(clientId string, idBatch string, idMessage string, msgInfo Me
 		}
 	}
 	fmt.Println(jsonStringOfQuotedMessage)
-	_, err = db.Stmts.InsertUUID.Exec(idMessage, idBatch, clientId, msgInfo.Text, msgInfo.Number, data_desejada, msgInfo.Documento_padrao, jsonStringOfQuotedMessage, msgInfo.Edited_id_message, msgInfo.Focus, msgInfo.Id_grupo, jsonStringOfSendContact, Desenvolvimento)
+	_, err = db.Stmts.InsertUUID.Exec(idMessage, idBatch, clientId, msgInfo.Text, msgInfo.Number, data_desejada, msgInfo.Documento_padrao, jsonStringOfQuotedMessage, msgInfo.Edited_id_message, msgInfo.Focus, msgInfo.Id_grupo, jsonStringOfSendContact, Desenvolvimento, msgInfo.Typing_duration)
 	if err != nil {
 		log.Println("Erro ao adicionar mensagem:", err)
 	}
 
 }
-
+func GetTypingMessages() error {
+	db := connectToMessagesQueueDB()
+	now := time.Now().Unix()
+	rows, err := db.Stmts.selectTypingMessages.Query(now, Desenvolvimento, pollBatchSizeDefault)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var clientId string
+		var number string
+		var typing_duration int32
+		var uuid string
+		var id_grupo string
+		err := rows.Scan(&clientId, &number, &typing_duration, &uuid, &id_grupo)
+		if err != nil {
+			log.Println("Erro no scan:", err)
+			continue
+		}
+		fmt.Println("Para digitar : ", clientId, number, typing_duration)
+		client := actions.GetClient(clientId)
+		validNumber, err := actions.CheckNumberWithRetry(client, number, id_grupo != "", clientId)
+		var JID types.JID
+		if err != nil {
+			fmt.Println(err, "ERRO ISONWHATSAPP")
+			fmt.Println("⛔ -> Número inválido Erro. ClientId: ", clientId, " | Número: ", number)
+			return err
+		}
+		if len(validNumber) == 0 {
+			err = fmt.Errorf("Número inválido\n")
+			fmt.Println("⛔ -> Número inválido. ClientId: ", clientId, " | Número: ", number)
+			return err
+		}
+		response := validNumber[0] // Acessa o primeiro item da slicet
+		JID = response.JID
+		IsIn := response.IsIn
+		if !IsIn {
+			err = fmt.Errorf("Número não está no WhatsApp\n")
+			fmt.Println("⛔ -> Número not In WhatsApp. ClientId: ", clientId, " | Número: ", number)
+			return err
+		}
+		SetStatus(client, "digitando", JID)
+	}
+	return nil
+}
 func AddMensagemPendente(sendInfo SendMessageInfo) {
 	now := time.Unix(int64(sendInfo.DataProgramada), 0).Unix()
+	var lastDuration int32 = 0
+
 	for i, v := range sendInfo.Result {
 		v.Documento_padrao = sendInfo.Documento_padrao
 		customDelay := RandomBetween(1, 4)
@@ -305,6 +370,18 @@ func AddMensagemPendente(sendInfo SendMessageInfo) {
 		if id_message == "" {
 			id_message = sendInfo.IdBatch + strconv.Itoa(i)
 		}
+		if lastDuration == 0 && len(sendInfo.Result) > 1 {
+			text := v.Text
+			textLen := float64(len(text)) * 0.05
+			if textLen > 20 {
+				textLen = 20
+			} else if textLen < 5 {
+				textLen = 5
+			}
+			lastDuration = int32(textLen)
+			now += int64(textLen + 1)
+		}
+		v.Typing_duration = lastDuration
 		insertMessage(sendInfo.ClientIdLocal, sendInfo.IdBatch, id_message, v, now, sendInfo.SendContact)
 		if len(sendInfo.Result) > i+1 {
 			nextItem := sendInfo.Result[i+1]
@@ -313,7 +390,10 @@ func AddMensagemPendente(sendInfo SendMessageInfo) {
 			textLen := float64(len(text)) * 0.05
 			if textLen > 20 {
 				textLen = 20
+			} else if textLen < 5 {
+				textLen = 5
 			}
+			lastDuration = int32(textLen)
 			totalDelay = int(textLen) + totalDelay
 			fmt.Println("⏳ Tempo esperado para enviar a próxima mensagem:", totalDelay, "segundos...")
 			LogMemUsage()
@@ -553,6 +633,8 @@ func StartMessageQueue(numWorkers int, interval time.Duration, batchSize int) {
 			select {
 			case <-ticker.C:
 				pollDueMessages(batchSize)
+				GetTypingMessages()
+
 			case <-pollStop:
 				return
 			}
@@ -560,6 +642,8 @@ func StartMessageQueue(numWorkers int, interval time.Duration, batchSize int) {
 	}()
 	// Initial immediate poll
 	pollDueMessages(batchSize)
+	GetTypingMessages()
+
 }
 
 // triggerImmediatePoll triggers a one-off poll to enqueue newly due messages.
