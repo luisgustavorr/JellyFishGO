@@ -632,7 +632,8 @@ func StartMessageQueue(numWorkers int, interval time.Duration, batchSize int) {
 		pollStop = make(chan struct{})
 	}
 	// Start workers
-	for i := 0; i < numWorkers; i++ {
+
+	for range numWorkers {
 		go func() {
 			for uuid := range jobQueue {
 				enviarMensagem(uuid)

@@ -178,6 +178,7 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 
 // Enviar envelope de mensagens para o end point
 var retryEnvelope = map[string]int{}
+var retryEnvelopeMutex sync.RWMutex
 
 func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string) {
 	buf := modules.JsonBufferPool.Get().(*bytes.Buffer)
@@ -204,7 +205,9 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 	req.Header.Set("X-CSRFToken", modules.GetCSRFToken())
 	client := &http.Client{}
 	resp, err := client.Do(req)
-
+	retryEnvelopeMutex.Lock()
+	count := retryEnvelope[retryToken]
+	retryEnvelopeMutex.Unlock()
 	if err != nil {
 		envelopeToken := retryToken
 		if envelopeToken == "" {
@@ -223,7 +226,7 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 			dataToLog.Data = append(dataToLog.Data, nonMediaData)
 		}
 
-		if retryEnvelope[envelopeToken] > 3 {
+		if count > 3 {
 			b, _ := json.MarshalIndent(dataToLog, "", "  ")
 			body := []byte{}
 			if resp != nil {
@@ -232,13 +235,16 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 					return
 				}
 			}
-
 			fmt.Println("Body ERROR Response :", string(body))
 			fmt.Println("Payload:", string(b))
+			retryEnvelopeMutex.Lock()
 			fmt.Printf("Erro ao enviar a requisição do '%s' , tentativa (%d/%d): %v\n", data.ClientID, retryEnvelope[envelopeToken]+1, 5, err)
 			delete(retryEnvelope, envelopeToken)
+			retryEnvelopeMutex.Unlock()
 		} else {
-			retryEnvelope[envelopeToken] += 1
+			retryEnvelopeMutex.Lock()
+			retryEnvelope[envelopeToken] = count + 1
+			retryEnvelopeMutex.Unlock()
 			time.Sleep(5 * time.Second)
 			sendEnvelopeToEndPoint(data, url, envelopeToken)
 		}
@@ -285,7 +291,8 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 			nonMediaData.Mensagem.Attrs.Audio = "audio_here"
 			dataToLog.Data = append(dataToLog.Data, nonMediaData)
 		}
-		if retryEnvelope[envelopeToken] > 3 {
+
+		if count > 3 {
 			b, _ := json.MarshalIndent(dataToLog, "", "  ")
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
@@ -293,11 +300,14 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 			}
 			fmt.Println("Body ERROR Response :", string(body))
 			fmt.Println("Payload:", string(b))
-
+			retryEnvelopeMutex.Lock()
 			fmt.Printf("Erro ao enviar a requisição do '%s' , tentativa (%d/%d): %v\n", data.ClientID, retryEnvelope[envelopeToken]+1, 5, err)
 			delete(retryEnvelope, envelopeToken)
+			retryEnvelopeMutex.Unlock()
 		} else {
-			retryEnvelope[envelopeToken] += 1
+			retryEnvelopeMutex.Lock()
+			retryEnvelope[envelopeToken] = count + 1
+			retryEnvelopeMutex.Unlock()
 			time.Sleep(5 * time.Second)
 			sendEnvelopeToEndPoint(data, url, envelopeToken)
 		}
