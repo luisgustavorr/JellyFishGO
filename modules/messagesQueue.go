@@ -239,7 +239,7 @@ limit 1
 	selectTypingMessages, err := db.Prepare(`
 	WITH cte AS (
 SELECT clientId, number,typing_duration,uuid FROM pendingMessages
-		WHERE data_desejada-typing_duration <= $1 AND indev = $2 AND typing = false
+		WHERE data_desejada-typing_duration <= $1 AND indev = $2 AND typing = false and should_try_again = true AND attempts < $3
 		  LIMIT $3
 )
 UPDATE pendingMessages p
