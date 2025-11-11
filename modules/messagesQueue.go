@@ -100,6 +100,20 @@ type MessageIndividual struct {
 var dbMensagensPendentes *Database
 var actions BasicActions
 var urlSendMessageEdpoint = map[string]string{}
+var sendMessageMutex = make(map[string]*sync.Mutex)
+var sendMessageMutexLock sync.Mutex // protects access to the map itself
+
+func getClientMutex(clientId string) *sync.Mutex {
+	sendMessageMutexLock.Lock()
+	defer sendMessageMutexLock.Unlock()
+
+	m, ok := sendMessageMutex[clientId]
+	if !ok {
+		m = &sync.Mutex{}
+		sendMessageMutex[clientId] = m
+	}
+	return m
+}
 
 // Worker pool and poller configuration
 var (
@@ -796,7 +810,9 @@ func enviarMensagem(uuid string) {
 		log.Println("Scan error:", err)
 		return
 	}
-
+	clientMutex := getClientMutex(clientId)
+	clientMutex.Lock()
+	defer clientMutex.Unlock()
 	msgInfo.Number = SanitizeNumber(msgInfo.Number)
 	client := actions.GetClient(clientId)
 	defer SetStatus(client, "conectado", types.JID{})
