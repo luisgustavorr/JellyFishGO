@@ -855,8 +855,7 @@ func enviarMensagem(uuid string) {
 				SenderTimestamp:     proto.Uint64(uint64(time.Now().Unix())),
 				RecipientTimestamp:  proto.Uint64(uint64(time.Now().Unix())),
 			},
-			DeviceListMetadataVersion: proto.Int32(2),
-			MessageSecret:             secret,
+			MessageSecret: secret,
 		},
 		Conversation: proto.String(msgInfo.Text),
 	}
@@ -1019,8 +1018,7 @@ func enviarMensagem(uuid string) {
 						SenderAccountType:   (*waAdv.ADVEncryptionType)(proto.Int32(0)),
 						ReceiverAccountType: (*waAdv.ADVEncryptionType)(proto.Int32(0)),
 					},
-					DeviceListMetadataVersion: proto.Int32(2),
-					MessageSecret:             secret,
+					MessageSecret: secret,
 				},
 				Conversation: proto.String(msgInfo.Text),
 			})
