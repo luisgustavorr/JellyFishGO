@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/goccy/go-json"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waAdv"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
@@ -779,6 +781,17 @@ func CleanUploads() { // limpar arquivos do uploads
 	}
 	// RemoveContents("./uploads/")
 }
+func CreateSecret(length int) []byte {
+	randomBytes := make([]byte, length)
+
+	// Fill the slice with random bytes
+	_, err := rand.Read(randomBytes)
+	if err != nil {
+		return randomBytes
+
+	}
+	return randomBytes
+}
 func enviarMensagem(uuid string) {
 
 	db := connectToMessagesQueueDB()
@@ -829,10 +842,23 @@ func enviarMensagem(uuid string) {
 	id_grupo := msgInfo.Id_grupo //todo PEGAR O ID DO GRUPO
 	validNumber, err := actions.CheckNumberWithRetry(client, msgInfo.Number, id_grupo != "", clientId)
 	var JID types.JID = types.JID{}
+	fmt.Println(client.Store.ID)
+	if err != nil {
+		fmt.Println(err)
+	}
 	message := &waE2E.Message{
-		ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-			Text: proto.String(msgInfo.Text),
+
+		MessageContextInfo: &waE2E.MessageContextInfo{
+			DeviceListMetadata: &waE2E.DeviceListMetadata{
+				SenderAccountType:   (*waAdv.ADVEncryptionType)(proto.Int32(0)),
+				ReceiverAccountType: (*waAdv.ADVEncryptionType)(proto.Int32(0)),
+				SenderTimestamp:     proto.Uint64(uint64(time.Now().Unix())),
+				RecipientTimestamp:  proto.Uint64(uint64(time.Now().Unix())),
+			},
+			DeviceListMetadataVersion: proto.Int32(2),
+			MessageSecret:             CreateSecret(32),
 		},
+		Conversation: proto.String(msgInfo.Text),
 	}
 	msg := SingleMessageInfo{
 		ClientId:    clientId,
@@ -922,9 +948,7 @@ func enviarMensagem(uuid string) {
 
 		if err == nil && len(validNumber) > 0 && validNumber[0].JID != types.EmptyJID {
 			var msg_quote *waE2E.Message = &waE2E.Message{
-				ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-					Text: proto.String(msgInfo.Quoted_message.Quoted_text),
-				},
+				Conversation: proto.String(msgInfo.Text),
 			}
 			message.ExtendedTextMessage = &waE2E.ExtendedTextMessage{
 				Text: proto.String(msgInfo.Text),
@@ -967,6 +991,7 @@ func enviarMensagem(uuid string) {
 			err = fmt.Errorf("Número do contato inválido ! Erro :%s", err.Error())
 		}
 	}
+
 	retornoEnvio, err = client.SendMessage(ctxWT, JID, message)
 	if err != nil {
 		updateLastError(uuid, true, msgInfo.Attempts, fmt.Sprintln("Erro ao enviar mensagem 1°: ", err))
@@ -988,9 +1013,7 @@ func enviarMensagem(uuid string) {
 		//6PF365PCL6MN5UUFBAAORJUPQ_chat3d0e59e6-ccef-43ee-ab2b-084dbeb0878e_!-!_Captura de tela de 2025-09-01 20-49-57
 		if extraMessage {
 			retornoEnvio2, err := client.SendMessage(ctxWT, JID, &waE2E.Message{
-				ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-					Text: proto.String(msgInfo.Text),
-				},
+				Conversation: proto.String(msgInfo.Text),
 			})
 			if err != nil {
 				updateLastError(uuid, true, msgInfo.Attempts, fmt.Sprintln("Erro ao enviar mensagem extra de texto° : ", err))

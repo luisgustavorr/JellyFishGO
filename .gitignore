@@ -13,3 +13,5 @@ profile
 trace
 ./pprof
 ecosystem.config.js
+*.json
+*.txt

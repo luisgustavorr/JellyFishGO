@@ -42,6 +42,7 @@ import (
 	"github.com/skip2/go-qrcode"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -535,7 +536,8 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		return false
 	}
 	chatID := fullInfoMessage.Info.Chat.String()
-
+	// teste, _ := json.MarshalIndent(fullInfoMessage, " ", "")
+	// fmt.Println(string(teste))
 	fmt.Printf("Raw chatID received: %s\n", chatID)
 	if fullInfoMessage.NewsletterMeta != nil {
 		fmt.Printf("NewsletterMeta detected: %+v\n", fullInfoMessage.NewsletterMeta)
@@ -634,8 +636,9 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 
 	JID := sender.ToNonAD()
 	if fromMe {
-		JID = client.Store.GetJID().ToNonAD()
 		chat := fullInfoMessage.Info.Chat
+		JID = chat.ToNonAD()
+
 		if fullInfoMessage.Info.Chat.Server == "lid" {
 			pn, err := client.Store.LIDs.GetPNForLID(ctx, fullInfoMessage.Info.Chat)
 			if err != nil {
@@ -1014,6 +1017,13 @@ func tryConnecting(clientId string) *whatsmeow.Client {
 	if err != nil {
 		fmt.Println("erro pegandoDevice", err)
 		return nil
+	}
+	if strings.Contains(clientId, "_chat") {
+		store.SetOSInfo("Shark Business(ChatBot)", [3]uint32{2, 3000, 1029770999})
+
+	} else if strings.Contains(clientId, "_shark") {
+		store.SetOSInfo("Shark Business", [3]uint32{2, 3000, 1029770999})
+
 	}
 	clientLog := waLog.Stdout("Client - "+clientId, "ERROR", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
@@ -1641,7 +1651,8 @@ func main() {
 				"message": "Numero inválido",
 			})
 		}
-
+		teste, _ := json.MarshalIndent(response, " ", "")
+		fmt.Println(string(teste))
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Número Válido",
 		})
@@ -1852,6 +1863,13 @@ func main() {
 		if err != nil {
 
 			fmt.Println(err)
+		}
+		if strings.Contains(clientId, "_chat") {
+			store.SetOSInfo("Shark Business(ChatBot)", [3]uint32{2, 3000, 1029770999})
+
+		} else if strings.Contains(clientId, "_shark") {
+			store.SetOSInfo("Shark Business", [3]uint32{2, 3000, 1029770999})
+
 		}
 		clientLog := waLog.Stdout("Client - "+clientId, "ERROR", true)
 		client := whatsmeow.NewClient(deviceStore, clientLog)
