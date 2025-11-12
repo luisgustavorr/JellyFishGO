@@ -192,7 +192,7 @@ func connectToMessagesQueueDB() *Database {
 	}
 	selectStmt, err := db.Prepare(`
 		SELECT clientId, text, number, documento_padrao, quoted_message, 
-		       edited_id_message, focus, id_grupo, send_contact,attempts,idbatch
+		       edited_id_message, focus, id_grupo, send_contact,attempts,idbatch,data_desejada
 		FROM pendingMessages
 		WHERE uuid = $1 LIMIT 1`)
 	if err != nil {
@@ -788,6 +788,7 @@ func enviarMensagem(uuid string) {
 	ctxWT, cancel := context.WithTimeout(mainCtx, 12*time.Second)
 	defer cancel()
 	var clientId string
+	var timestampDesejado int64
 	msgInfo := MessageIndividual{}
 	err := db.Stmts.GetPendingByUUID.QueryRowContext(ctxWT, uuid).Scan(
 		&clientId,
@@ -801,6 +802,7 @@ func enviarMensagem(uuid string) {
 		&msgInfo.Send_contact,
 		&msgInfo.Attempts,
 		&msgInfo.IdBatch,
+		&timestampDesejado,
 	)
 
 	if err != nil {
@@ -1022,11 +1024,11 @@ func enviarMensagem(uuid string) {
 			SendToEndPoint(data, urlSendMessageEdpoint[sufixo])
 		}
 	}
-	fmt.Printf("[%s]📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s, JID:%s] ENVIADA \n", uuid, retornoEnvio.ID, clientId, msgInfo.Text, msgInfo.Number, JID.User)
+
+	fmt.Printf("[%s]📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s, JID:%s, data agendada : %s] ENVIADA \n", uuid, retornoEnvio.ID, clientId, msgInfo.Text, msgInfo.Number, JID.User, time.Unix(timestampDesejado, 0).Format("2006-01-02 15:04:05"))
 	if msgInfo.Focus == "noreply" {
 		fmt.Println("Mensagem não deve ser enviada, focus 'noreply'")
 		removeMensagemPendente(uuid)
-
 		return
 	}
 	if msgInfo.Focus == "disparo_mensagens" {
