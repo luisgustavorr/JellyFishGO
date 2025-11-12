@@ -615,7 +615,10 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			fullInfoMessage.Info.Sender = pn
 			senderNumber = getSender(pn.User)
 		}
+		fmt.Printf("🌐✅ -> Convertendo LID '%s' para JID '%s' \n", sender.String(), fullInfoMessage.Info.Sender.String())
+
 	}
+
 	// fmt.Println("📩 -> Mensagem RECEBIDA TEMPORARIO LOG:", senderName, senderNumber, clientId, text, fullInfoMessage.Info.Sender, " | By Group:", groupMessage)
 	var fileName = ""
 	if message.DocumentMessage != nil {
