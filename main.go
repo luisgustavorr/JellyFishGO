@@ -607,21 +607,16 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	ctx := context.Background()
 	sender := fullInfoMessage.Info.Sender
 	var senderNumber string = getSender(sender.User)
-
-	if !fromMe {
-
-		if sender.Server == "lid" {
-
-			pn, err := client.Store.LIDs.GetPNForLID(ctx, sender)
-			if err != nil {
-				client.Log.Warnf("Failed to get LID for %s: %v", sender, err)
-			} else if !pn.IsEmpty() {
-				fullInfoMessage.Info.Sender = pn
-				senderNumber = getSender(pn.User)
-			}
+	if sender.Server == "lid" {
+		pn, err := client.Store.LIDs.GetPNForLID(ctx, sender)
+		if err != nil {
+			client.Log.Warnf("Failed to get LID for %s: %v", sender, err)
+		} else if !pn.IsEmpty() {
+			fullInfoMessage.Info.Sender = pn
+			senderNumber = getSender(pn.User)
 		}
-		// fmt.Println("📩 -> Mensagem RECEBIDA TEMPORARIO LOG:", senderName, senderNumber, clientId, text, fullInfoMessage.Info.Sender, " | By Group:", groupMessage)
 	}
+	// fmt.Println("📩 -> Mensagem RECEBIDA TEMPORARIO LOG:", senderName, senderNumber, clientId, text, fullInfoMessage.Info.Sender, " | By Group:", groupMessage)
 	var fileName = ""
 	if message.DocumentMessage != nil {
 		fileName = *message.DocumentMessage.FileName
