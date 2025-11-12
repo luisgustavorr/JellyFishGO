@@ -394,7 +394,7 @@ func PrepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 	}
 	fmt.Println("📁 O arquivo é um :", mimeType, " com final ", filepath.Ext(nomeArquivo))
 
-	mensagem_.ExtendedTextMessage = nil
+	mensagem_.Conversation = nil
 	semExtensao := strings.TrimSuffix(nomeArquivo, filepath.Ext(nomeArquivo))
 	explodedName := strings.Split(nomeArquivo, "_!-!_")
 	semExtensao = explodedName[len(explodedName)-1]
@@ -425,14 +425,14 @@ func PrepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 		}
 		extraMessageNeeded = true
 		// if text != "" {
-		// 	if mensagem_.ExtendedTextMessage == nil {
-		// 		mensagem_.ExtendedTextMessage = &waE2E.ExtendedTextMessage{}
+		// 	if mensagem_.Conversation == nil {
+		// 		mensagem_.Conversation = &waE2E.ExtendedTextMessage{}
 		// 	}
-		// 	mensagem_.ExtendedTextMessage.Text = proto.String(text)
+		// 	mensagem_.Conversation.Text = proto.String(text)
 		// 	msg.MessageInfo = mensagem_
 		// 	processarMensagem(msg, UUID)
 		// }
-		mensagem_.ExtendedTextMessage = nil
+		mensagem_.Conversation = nil
 		mensagem_.AudioMessage = imageMsg
 
 	} else if filetype.IsImage(buf) {
@@ -453,7 +453,7 @@ func PrepararMensagemArquivo(text string, message *waE2E.Message, chosedFile str
 			MediaKeyTimestamp: proto.Int64(time.Now().Unix()),
 		}
 		mensagem_.ImageMessage = imageMsg
-		mensagem_.ExtendedTextMessage = nil
+		mensagem_.Conversation = nil
 	} else if filetype.IsVideo(buf) {
 		resp, err := client.Upload(context.Background(), buf, whatsmeow.MediaVideo)
 		if err != nil {

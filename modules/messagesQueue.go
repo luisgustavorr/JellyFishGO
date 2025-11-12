@@ -847,7 +847,6 @@ func enviarMensagem(uuid string) {
 		fmt.Println(err)
 	}
 	message := &waE2E.Message{
-
 		MessageContextInfo: &waE2E.MessageContextInfo{
 			DeviceListMetadata: &waE2E.DeviceListMetadata{
 				SenderAccountType:   (*waAdv.ADVEncryptionType)(proto.Int32(0)),

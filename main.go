@@ -1651,8 +1651,8 @@ func main() {
 				"message": "Numero inválido",
 			})
 		}
-		teste, _ := json.MarshalIndent(response, " ", "")
-		fmt.Println(string(teste))
+		// teste, _ := json.MarshalIndent(response, " ", "")
+		// fmt.Println(string(teste))
 		return c.Status(200).JSON(fiber.Map{
 			"message": "Número Válido",
 		})
