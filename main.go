@@ -205,9 +205,9 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 	req.Header.Set("X-CSRFToken", modules.GetCSRFToken())
 	client := &http.Client{}
 	resp, err := client.Do(req)
-	retryEnvelopeMutex.Lock()
+	retryEnvelopeMutex.RLock()
 	count := retryEnvelope[retryToken]
-	retryEnvelopeMutex.Unlock()
+	retryEnvelopeMutex.RUnlock()
 	if err != nil {
 		envelopeToken := retryToken
 		if envelopeToken == "" {

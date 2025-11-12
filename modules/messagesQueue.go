@@ -1022,7 +1022,7 @@ func enviarMensagem(uuid string) {
 			SendToEndPoint(data, urlSendMessageEdpoint[sufixo])
 		}
 	}
-	fmt.Println("[", uuid, "]📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s, JID:%s] ENVIADA \n", retornoEnvio.ID, clientId, msgInfo.Text, msgInfo.Number, JID.User)
+	fmt.Printf("[%s]📦 -> MENSAGEM [ID:%s, clientID:%s, mensagem:%s, numero:%s, JID:%s] ENVIADA \n", uuid, retornoEnvio.ID, clientId, msgInfo.Text, msgInfo.Number, JID.User)
 	if msgInfo.Focus == "noreply" {
 		fmt.Println("Mensagem não deve ser enviada, focus 'noreply'")
 		removeMensagemPendente(uuid)
