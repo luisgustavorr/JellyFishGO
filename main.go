@@ -635,6 +635,17 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	JID := sender.ToNonAD()
 	if fromMe {
 		JID = client.Store.GetJID().ToNonAD()
+		chat := fullInfoMessage.Info.Chat
+		if fullInfoMessage.Info.Chat.Server == "lid" {
+			pn, err := client.Store.LIDs.GetPNForLID(ctx, fullInfoMessage.Info.Chat)
+			if err != nil {
+				client.Log.Warnf("Failed to get LID for %s: %v", fullInfoMessage.Info.Chat, err)
+			} else if !pn.IsEmpty() {
+				fullInfoMessage.Info.Chat = pn
+			}
+			fmt.Printf("🌐✅ -> Convertendo LID chat fromMe '%s' para JID '%s' \n", chat.String(), fullInfoMessage.Info.Chat.String())
+
+		}
 		senderNumber = fullInfoMessage.Info.Chat.User
 	}
 	params := &whatsmeow.GetProfilePictureParams{}
