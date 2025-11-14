@@ -948,6 +948,7 @@ func enviarMensagem(uuid string) {
 			var msg_quote *waE2E.Message = &waE2E.Message{
 				Conversation: proto.String(msgInfo.Text),
 			}
+			message.Conversation = nil
 			message.ExtendedTextMessage = &waE2E.ExtendedTextMessage{
 				Text: proto.String(msgInfo.Text),
 				ContextInfo: &waE2E.ContextInfo{
