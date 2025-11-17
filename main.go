@@ -538,7 +538,8 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	chatID := fullInfoMessage.Info.Chat.String()
 	// teste, _ := json.MarshalIndent(fullInfoMessage, " ", "")
 	// fmt.Println(string(teste))
-	fmt.Printf("Raw chatID received: %s\n", chatID)
+	fmt.Println(fullInfoMessage.Info.AddressingMode)
+	fmt.Printf("Raw chatID received: %s Addressing Mode : %s\n", chatID, fullInfoMessage.Info.AddressingMode)
 	if fullInfoMessage.NewsletterMeta != nil {
 		fmt.Printf("NewsletterMeta detected: %+v\n", fullInfoMessage.NewsletterMeta)
 	}
