@@ -538,8 +538,11 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	chatID := fullInfoMessage.Info.Chat.String()
 	// teste, _ := json.MarshalIndent(fullInfoMessage, " ", "")
 	// fmt.Println(string(teste))
-	fmt.Println(fullInfoMessage.Info.AddressingMode)
-	fmt.Printf("Raw chatID received: %s Addressing Mode : %s\n", chatID, fullInfoMessage.Info.AddressingMode)
+	addressingMode := "VAZIO"
+	if fullInfoMessage.Info.AddressingMode != "" {
+		addressingMode = fmt.Sprintln(fullInfoMessage.Info.AddressingMode)
+	}
+	fmt.Printf("Raw chatID received: %s Addressing Mode : %s\n", chatID, addressingMode)
 	if fullInfoMessage.NewsletterMeta != nil {
 		fmt.Printf("NewsletterMeta detected: %+v\n", fullInfoMessage.NewsletterMeta)
 	}
@@ -552,7 +555,6 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	var isBroadcast bool = fullInfoMessage.SourceWebMsg.GetBroadcast()
 	// Status (mensagem no status)
 	var isStatus bool = strings.Contains(chatID, "status")
-
 	// Enquete (vários tipos)
 	var isPoll bool = fullInfoMessage.Message.GetPollUpdateMessage() != nil ||
 		fullInfoMessage.Message.GetPollCreationMessage() != nil ||
