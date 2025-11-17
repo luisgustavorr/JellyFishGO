@@ -915,7 +915,9 @@ func autoConnection() {
 		clientsMutex.Unlock()
 		if !exists {
 			// Reconecta sem lock
+
 			newClient := tryConnecting(clientID)
+
 			clientsMutex.Lock()
 			if newClient != nil {
 				clientMap[clientID] = newClient
@@ -1027,6 +1029,7 @@ func tryConnecting(clientId string) *whatsmeow.Client {
 	}
 	clientLog := waLog.Stdout("Client - "+clientId, "ERROR", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
+	client.SendReportingTokens = true
 	avaiableProxyServer, found := modules.GetServerByClientId(clientId)
 	if !found {
 		fmt.Printf("[PROXY] -> Não existem servidores disponíveis para o cliente : %s \n", clientId)

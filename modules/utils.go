@@ -44,6 +44,22 @@ var MODO_DESENVOLVIMENTO = os.Getenv("MODO_DESENVOLVIMENTO")
 var Desenvolvimento = MODO_DESENVOLVIMENTO == "1"
 var MapOficial = LoadConfigInicial(os.Getenv("STRING_CONN"))
 
+func GetLIDForJID(ctx context.Context, cancel context.CancelFunc, client *whatsmeow.Client, JID types.JID) types.JID {
+	defer cancel()
+	LID := JID
+	if JID.Server == "s.whatsapp.net" {
+		returnedLid, err := client.Store.LIDs.GetLIDForPN(ctx, JID)
+		if err != nil {
+			client.Log.Warnf("Failed to get LID for %s: %v", JID, err)
+			return LID
+		} else if !returnedLid.IsEmpty() {
+			LID = returnedLid
+			fmt.Printf("🌐✅ -> Convertendo JID '%s' para LID '%s' \n", JID.String(), LID.String())
+		}
+	}
+
+	return LID
+}
 func LoadConfigInicial(dsn string) map[string]string {
 	mapProducao := map[string]string{}
 	// Conectar ao banco de dados

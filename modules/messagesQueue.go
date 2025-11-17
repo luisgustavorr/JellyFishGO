@@ -846,7 +846,7 @@ func enviarMensagem(uuid string) {
 	if err != nil {
 		fmt.Println(err)
 	}
-	secret := CreateSecret(32)
+	// secret := CreateSecret(32)
 	message := &waE2E.Message{
 		MessageContextInfo: &waE2E.MessageContextInfo{
 			DeviceListMetadata: &waE2E.DeviceListMetadata{
@@ -855,7 +855,7 @@ func enviarMensagem(uuid string) {
 				SenderTimestamp:     proto.Uint64(uint64(time.Now().Unix())),
 				RecipientTimestamp:  proto.Uint64(uint64(time.Now().Unix())),
 			},
-			MessageSecret: secret,
+			// MessageSecret: secret,
 		},
 		Conversation: proto.String(msgInfo.Text),
 	}
@@ -941,6 +941,20 @@ func enviarMensagem(uuid string) {
 	}
 
 	defer SetStatus(client, "conectado", JID)
+	// fmt.Println(JID.Server)
+	// IF NEEDED OF USING LID INSTEAD OF JID WHEN SENDING DIRECT MESSAGES
+	// if JID.Server == "s.whatsapp.net" {
+	// 	lid, err := client.Store.LIDs.GetLIDForPN(mainCtx, JID)
+	// 	if err != nil {
+	// 		client.Log.Warnf("Failed to get LID for %s: %v", JID, err)
+	// 	} else if !lid.IsEmpty() {
+	// 		fmt.Printf("🌐✅ -> Convertendo LID '%s' para JID '%s' \n", JID.String(), lid.String())
+	// 		JID = lid
+	// 	}
+	// }
+	// ctx := context.Background()
+	// timeoutContext, cancelJIDTM := context.WithTimeout(ctx, 15*time.Second)
+	// JID = GetLIDForJID(timeoutContext, cancelJIDTM, client, JID)
 	if msgInfo.Quoted_message != nil && msgInfo.Quoted_message.Quoted_sender != "" && msgInfo.Quoted_message.Quoted_message_id != "" {
 		validNumber, err := actions.CheckNumberWithRetry(client, SanitizeNumber(msgInfo.Quoted_message.Quoted_sender), id_grupo != "", clientId)
 
@@ -969,7 +983,6 @@ func enviarMensagem(uuid string) {
 		// Deserializando o JSON corretamente para o map
 		validNumber, err := actions.CheckNumberWithRetry(client, SanitizeNumber(sendContact.Contato), id_grupo != "", clientId)
 		if err == nil && len(validNumber) > 0 && validNumber[0].JID != types.EmptyJID {
-			fmt.Println(err, "ERRO IS ONWHATSAPP")
 			response := validNumber[0]
 			cell := response.JID.User
 			formatedNumber := FormatPhoneNumber(cell)
@@ -998,7 +1011,7 @@ func enviarMensagem(uuid string) {
 		fmt.Println("Erro ao enviar mensagem", err)
 		return
 	} else {
-		client.Store.MsgSecrets.PutMessageSecret(ctxWT, JID, client.Store.GetJID(), retornoEnvio.ID, secret)
+		// client.Store.MsgSecrets.PutMessageSecret(ctxWT, JID, client.Store.GetJID(), retornoEnvio.ID, secret)
 		if newNameFile != "" {
 			changeFileName(msgInfo.IdBatch, newNameFile)
 			defer func(idbatch string) {
@@ -1011,15 +1024,15 @@ func enviarMensagem(uuid string) {
 		}
 
 		//6PF365PCL6MN5UUFBAAORJUPQ_chat3d0e59e6-ccef-43ee-ab2b-084dbeb0878e_!-!_Captura de tela de 2025-09-01 20-49-57
-		if extraMessage {
-			secret := CreateSecret(32)
+		if extraMessage && msgInfo.Text != "" {
+			// secret := CreateSecret(32)
 			retornoEnvio2, err := client.SendMessage(ctxWT, JID, &waE2E.Message{
 				MessageContextInfo: &waE2E.MessageContextInfo{
 					DeviceListMetadata: &waE2E.DeviceListMetadata{
 						SenderAccountType:   (*waAdv.ADVEncryptionType)(proto.Int32(0)),
 						ReceiverAccountType: (*waAdv.ADVEncryptionType)(proto.Int32(0)),
 					},
-					MessageSecret: secret,
+					// MessageSecret: secret,
 				},
 				Conversation: proto.String(msgInfo.Text),
 			})
@@ -1029,7 +1042,7 @@ func enviarMensagem(uuid string) {
 				fmt.Println("Erro ao enviar mensagem extra de texto", err)
 				return
 			}
-			client.Store.MsgSecrets.PutMessageSecret(ctxWT, JID, client.Store.GetJID(), retornoEnvio.ID, secret)
+			// client.Store.MsgSecrets.PutMessageSecret(ctxWT, JID, client.Store.GetJID(), retornoEnvio.ID, secret)
 			if msgInfo.Focus == "noreply" {
 				fmt.Println("Mensagem não deve ser enviada, focus 'noreply'")
 				removeMensagemPendente(uuid)
