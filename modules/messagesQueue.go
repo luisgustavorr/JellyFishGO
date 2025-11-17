@@ -852,8 +852,6 @@ func enviarMensagem(uuid string) {
 			DeviceListMetadata: &waE2E.DeviceListMetadata{
 				SenderAccountType:   (*waAdv.ADVEncryptionType)(proto.Int32(0)),
 				ReceiverAccountType: (*waAdv.ADVEncryptionType)(proto.Int32(0)),
-				SenderTimestamp:     proto.Uint64(uint64(time.Now().Unix())),
-				RecipientTimestamp:  proto.Uint64(uint64(time.Now().Unix())),
 			},
 			// MessageSecret: secret,
 		},
