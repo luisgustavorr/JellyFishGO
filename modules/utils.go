@@ -135,6 +135,10 @@ func SetStatus(client *whatsmeow.Client, status string, JID types.JID) {
 		client.SendChatPresence(ctxWt, JID, types.ChatPresenceComposing, "")
 		return
 	}
+	if status == "pausado" {
+		client.SendChatPresence(ctxWt, JID, types.ChatPresencePaused, "")
+		return
+	}
 	if status == "gravando" {
 		client.SendChatPresence(ctxWt, JID, types.ChatPresence(types.ChatPresenceMediaAudio), "")
 		return

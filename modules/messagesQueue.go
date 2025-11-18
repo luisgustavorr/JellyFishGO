@@ -804,6 +804,7 @@ func enviarMensagem(uuid string) {
 	defer cancel()
 	var clientId string
 	var timestampDesejado int64
+
 	msgInfo := MessageIndividual{}
 	err := db.Stmts.GetPendingByUUID.QueryRowContext(ctxWT, uuid).Scan(
 		&clientId,
@@ -833,6 +834,7 @@ func enviarMensagem(uuid string) {
 	defer clientMutex.Unlock()
 	msgInfo.Number = SanitizeNumber(msgInfo.Number)
 	client := actions.GetClient(clientId)
+
 	if client == nil {
 		client = actions.TryConnecting(clientId)
 		if client == nil {
@@ -843,6 +845,8 @@ func enviarMensagem(uuid string) {
 	id_grupo := msgInfo.Id_grupo //todo PEGAR O ID DO GRUPO
 	validNumber, err := actions.CheckNumberWithRetry(client, msgInfo.Number, id_grupo != "", clientId)
 	var JID types.JID = types.JID{}
+	defer SetStatus(client, "conectado", JID)
+
 	fmt.Println(client.Store.ID)
 	if err != nil {
 		fmt.Println(err)
@@ -939,8 +943,6 @@ func enviarMensagem(uuid string) {
 			return
 		}
 	}
-
-	defer SetStatus(client, "conectado", JID)
 
 	// fmt.Println(JID.Server)
 	// IF NEEDED OF USING LID INSTEAD OF JID WHEN SENDING DIRECT MESSAGES
