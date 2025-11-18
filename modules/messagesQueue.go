@@ -857,10 +857,7 @@ func enviarMensagem(uuid string) {
 			// MessageSecret: secret,
 
 		},
-		ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-
-			Text: proto.String(msgInfo.Text),
-		},
+		Conversation: proto.String(msgInfo.Text),
 	}
 	msg := SingleMessageInfo{
 		ClientId:    clientId,
