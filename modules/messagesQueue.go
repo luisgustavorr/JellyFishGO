@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -1009,8 +1010,15 @@ func enviarMensagem(uuid string) {
 	retornoEnvio, err = client.SendMessage(ctxWT, JID, message)
 	if err != nil {
 		client.GetPrivacySettings(context.Background())
-		updateLastError(uuid, true, msgInfo.Attempts, fmt.Sprintln("Erro ao enviar mensagem 1°: ", err))
+		fmt.Printf("Erro completo: %+v\n", err)
+		fmt.Printf("Tipo do erro: %T\n", err)
 
+		// Check if it's an IQ error
+		var iqErr *whatsmeow.IQError
+		if errors.As(err, &iqErr) {
+			err = fmt.Errorf("IQ Error - Code: %d, Text: %s\n", iqErr.Code, iqErr.Text)
+		}
+		updateLastError(uuid, true, msgInfo.Attempts, fmt.Sprintln("Erro ao enviar mensagem 1°: ", err))
 		fmt.Println("Erro ao enviar mensagem", err)
 		return
 	} else {
@@ -1041,6 +1049,11 @@ func enviarMensagem(uuid string) {
 			})
 			if err != nil {
 				client.GetPrivacySettings(context.Background())
+				// Check if it's an IQ error
+				var iqErr *whatsmeow.IQError
+				if errors.As(err, &iqErr) {
+					err = fmt.Errorf("IQ Error - Code: %d, Text: %s\n", iqErr.Code, iqErr.Text)
+				}
 				updateLastError(uuid, true, msgInfo.Attempts, fmt.Sprintln("Erro ao enviar mensagem extra de texto° : ", err))
 
 				fmt.Println("Erro ao enviar mensagem extra de texto", err)
