@@ -1024,15 +1024,15 @@ func tryConnecting(clientId string) *whatsmeow.Client {
 		return nil
 	}
 	if strings.Contains(clientId, "_chat") {
-		store.SetOSInfo("Shark Business(ChatBot)", [3]uint32{2, 3000, 1029770999})
+		store.SetOSInfo("Shark Business(ChatBot)", [3]uint32{2, 3000, 1030047599})
 
 	} else if strings.Contains(clientId, "_shark") {
-		store.SetOSInfo("Shark Business", [3]uint32{2, 3000, 1029770999})
-
+		store.SetOSInfo("Shark Business", [3]uint32{2, 3000, 1030047599})
 	}
 	clientLog := waLog.Stdout("Client - "+clientId, "ERROR", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 	client.SendReportingTokens = true
+	client.ErrorOnSubscribePresenceWithoutToken = true
 	avaiableProxyServer, found := modules.GetServerByClientId(clientId)
 	if !found {
 		fmt.Printf("[PROXY] -> Não existem servidores disponíveis para o cliente : %s \n", clientId)
@@ -1871,15 +1871,16 @@ func main() {
 			fmt.Println(err)
 		}
 		if strings.Contains(clientId, "_chat") {
-			store.SetOSInfo("Shark Business(ChatBot)", [3]uint32{2, 3000, 1029770999})
+			store.SetOSInfo("Shark Business(ChatBot)", [3]uint32{2, 3000, 1030047599})
 
 		} else if strings.Contains(clientId, "_shark") {
-			store.SetOSInfo("Shark Business", [3]uint32{2, 3000, 1029770999})
+			store.SetOSInfo("Shark Business", [3]uint32{2, 3000, 1030047599})
 
 		}
 		clientLog := waLog.Stdout("Client - "+clientId, "ERROR", true)
 		client := whatsmeow.NewClient(deviceStore, clientLog)
-
+		client.SendReportingTokens = true
+		client.ErrorOnSubscribePresenceWithoutToken = true
 		client.EnableAutoReconnect = true
 		if pairphone != "" {
 			client.Connect()

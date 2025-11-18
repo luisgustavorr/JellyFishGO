@@ -370,6 +370,8 @@ func GetTypingMessages() error {
 			fmt.Println("⛔ -> Número not In WhatsApp. ClientId: ", clientId, " | Número: ", number)
 			return err
 		}
+		SetStatus(client, "conectado", JID)
+		client.SubscribePresence(context.Background(), JID)
 		SetStatus(client, "digitando", JID)
 	}
 	return nil
@@ -831,7 +833,6 @@ func enviarMensagem(uuid string) {
 	defer clientMutex.Unlock()
 	msgInfo.Number = SanitizeNumber(msgInfo.Number)
 	client := actions.GetClient(clientId)
-	defer SetStatus(client, "conectado", types.JID{})
 	if client == nil {
 		client = actions.TryConnecting(clientId)
 		if client == nil {
@@ -854,8 +855,12 @@ func enviarMensagem(uuid string) {
 				ReceiverAccountType: (*waAdv.ADVEncryptionType)(proto.Int32(0)),
 			},
 			// MessageSecret: secret,
+
 		},
-		Conversation: proto.String(msgInfo.Text),
+		ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+
+			Text: proto.String(msgInfo.Text),
+		},
 	}
 	msg := SingleMessageInfo{
 		ClientId:    clientId,
@@ -939,6 +944,7 @@ func enviarMensagem(uuid string) {
 	}
 
 	defer SetStatus(client, "conectado", JID)
+
 	// fmt.Println(JID.Server)
 	// IF NEEDED OF USING LID INSTEAD OF JID WHEN SENDING DIRECT MESSAGES
 	// if JID.Server == "s.whatsapp.net" {
@@ -1001,9 +1007,9 @@ func enviarMensagem(uuid string) {
 			err = fmt.Errorf("Número do contato inválido ! Erro :%s", err.Error())
 		}
 	}
-
 	retornoEnvio, err = client.SendMessage(ctxWT, JID, message)
 	if err != nil {
+		client.GetPrivacySettings(context.Background())
 		updateLastError(uuid, true, msgInfo.Attempts, fmt.Sprintln("Erro ao enviar mensagem 1°: ", err))
 
 		fmt.Println("Erro ao enviar mensagem", err)
@@ -1035,6 +1041,7 @@ func enviarMensagem(uuid string) {
 				Conversation: proto.String(msgInfo.Text),
 			})
 			if err != nil {
+				client.GetPrivacySettings(context.Background())
 				updateLastError(uuid, true, msgInfo.Attempts, fmt.Sprintln("Erro ao enviar mensagem extra de texto° : ", err))
 
 				fmt.Println("Erro ao enviar mensagem extra de texto", err)
