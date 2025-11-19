@@ -205,8 +205,8 @@ func sendEnvelopeToEndPoint(data modules.EnvelopePayload, url string, retryToken
 	req.Header.Set("Authorization", os.Getenv("STRING_AUTH"))
 	req.Header.Set("X-CSRFToken", modules.GetCSRFToken())
 	client := &http.Client{}
-	teste, _ := jsoniter.MarshalIndent(data, "", "")
-	fmt.Println(string(teste))
+	// teste, _ := jsoniter.MarshalIndent(data, "", "")
+	// fmt.Println(string(teste))
 	resp, err := client.Do(req)
 	retryEnvelopeMutex.RLock()
 	count := retryEnvelope[retryToken]
