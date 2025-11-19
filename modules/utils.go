@@ -31,6 +31,56 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+type MessagePayload struct {
+	Attrs     MessageAttrs `json:"attrs"`
+	ID        string       `json:"id"`
+	Sender    string       `json:"sender"`
+	Number    string       `json:"number"`
+	Text      string       `json:"text"`
+	Focus     string       `json:"focus,omitempty"`
+	IDGrupo   string       `json:"id_grupo,omitempty"`
+	NomeGrupo string       `json:"nome_grupo,omitempty"`
+	ImgGrupo  string       `json:"imagem_grupo,omitempty"`
+	PerfilImg string       `json:"perfil_image,omitempty"`
+	Timestamp int64        `json:"timestamp"`
+}
+type LocationMessage struct {
+	Latitude  *float64 `json:"latitude,omitempty"`
+	Longitude *float64 `json:"longitude,omitempty"`
+	Thumbnail string   `json:"thumbnail,omitempty"`
+}
+type MessageAttrs struct {
+	FileType      string           `json:"file_type,omitempty"`
+	FileName      string           `json:"file_name,omitempty"`
+	Location      *LocationMessage `json:"location,omitempty"`
+	Media         string           `json:"media,omitempty"`
+	Audio         string           `json:"audio,omitempty"`
+	Edited        int              `json:"edited,omitempty"`
+	QuotedMessage *QuotedMessage   `json:"quotedMessage,omitempty"`
+	Contact       *ContactInfo     `json:"contact,omitempty"`
+}
+type QuotedMessage struct {
+	SenderName    string `json:"senderName"`
+	MessageQuoted string `json:"messageQuoted"`
+	MessageID     string `json:"messageID"`
+	Sender        int    `json:"sender"`
+}
+
+type ContactInfo struct {
+	Contato string `json:"contato"`
+	Nome    string `json:"nome"`
+}
+type EnvelopePayload struct {
+	Data     []Envelope `json:"data,omitempty"`
+	Evento   string     `json:"evento,omitempty"`
+	ClientID string     `json:"clientId,omitempty"`
+	Sender   int        `json:"sender,omitempty"`
+}
+
+type Envelope struct {
+	Mensagem MessagePayload `json:"mensagem"`
+}
+
 func GetCSRFToken() string {
 	// Gera um token CSRF aleatório
 	rand.Seed(time.Now().UnixNano())

@@ -801,13 +801,13 @@ func enviarMensagem(uuid string) {
 	mainCtx := context.Background()
 	// ctx := context.Background()
 	// 01-mes 02-dia 2006-ano 03-hora 04-min 05-seg
-	ctxWT, cancel := context.WithTimeout(mainCtx, 12*time.Second)
+	ctxDB, cancel := context.WithTimeout(mainCtx, 12*time.Second)
 	defer cancel()
 	var clientId string
 	var timestampDesejado int64
 
 	msgInfo := MessageIndividual{}
-	err := db.Stmts.GetPendingByUUID.QueryRowContext(ctxWT, uuid).Scan(
+	err := db.Stmts.GetPendingByUUID.QueryRowContext(ctxDB, uuid).Scan(
 		&clientId,
 		&msgInfo.Text,
 		&msgInfo.Number,
@@ -1007,7 +1007,10 @@ func enviarMensagem(uuid string) {
 			err = fmt.Errorf("Número do contato inválido ! Erro :%s", err.Error())
 		}
 	}
-	retornoEnvio, err = client.SendMessage(ctxWT, JID, message)
+	ctxSend, cancelSend := context.WithTimeout(mainCtx, 30*time.Second)
+	defer cancelSend()
+
+	retornoEnvio, err = client.SendMessage(ctxSend, JID, message)
 	if err != nil {
 		client.GetPrivacySettings(context.Background())
 		fmt.Printf("Erro completo: %+v\n", err)
@@ -1037,7 +1040,9 @@ func enviarMensagem(uuid string) {
 		//6PF365PCL6MN5UUFBAAORJUPQ_chat3d0e59e6-ccef-43ee-ab2b-084dbeb0878e_!-!_Captura de tela de 2025-09-01 20-49-57
 		if extraMessage && msgInfo.Text != "" {
 			// secret := CreateSecret(32)
-			retornoEnvio2, err := client.SendMessage(ctxWT, JID, &waE2E.Message{
+			ctxExtra, cancelExtra := context.WithTimeout(mainCtx, 30*time.Second)
+			defer cancelExtra()
+			retornoEnvio2, err := client.SendMessage(ctxExtra, JID, &waE2E.Message{
 				MessageContextInfo: &waE2E.MessageContextInfo{
 					DeviceListMetadata: &waE2E.DeviceListMetadata{
 						SenderAccountType:   (*waAdv.ADVEncryptionType)(proto.Int32(0)),

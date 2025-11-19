@@ -101,25 +101,25 @@ func NewSeenQueue() *SeenMessagesQueue {
 
 type MessagesQueue struct {
 	bufferLock     sync.Mutex
-	messageBuffer  map[string][]Envelope
+	messageBuffer  map[string][]modules.Envelope
 	messageTimeout map[string]*time.Timer
 }
 
 // Cria nova fila de mensagens recebidas
 func NewQueue() *MessagesQueue {
 	return &MessagesQueue{
-		messageBuffer:  make(map[string][]Envelope, 5),
+		messageBuffer:  make(map[string][]modules.Envelope, 5),
 		messageTimeout: make(map[string]*time.Timer, 1),
 	}
 }
 
 // Adicionar mensagem para fila de envio
-func (c *MessagesQueue) AddMessage(clientID string, message Envelope, number string) {
+func (c *MessagesQueue) AddMessage(clientID string, message modules.Envelope, number string) {
 	c.bufferLock.Lock()
 	defer c.bufferLock.Unlock()
 	compositeKey := clientID + "_" + number
 	if _, exists := c.messageBuffer[compositeKey]; !exists {
-		c.messageBuffer[compositeKey] = []Envelope{}
+		c.messageBuffer[compositeKey] = []modules.Envelope{}
 	}
 	c.messageBuffer[compositeKey] = append(c.messageBuffer[compositeKey], message)
 	if timer, exists := c.messageTimeout[compositeKey]; exists {
@@ -161,7 +161,7 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 	if strings.Contains(baseURL, "disparo") {
 		baseURL = strings.Split(modules.MapOficial[sufixo], "disparo")[0]
 	}
-	data := EnvelopePayload{
+	data := modules.EnvelopePayload{
 		Evento:   "MENSAGEM_RECEBIDA",
 		Sender:   2,
 		ClientID: clientID,
@@ -181,7 +181,7 @@ func (c *MessagesQueue) ProcessMessages(clientID string, number string) {
 var retryEnvelope = map[string]int{}
 var retryEnvelopeMutex sync.RWMutex
 
-func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string) {
+func sendEnvelopeToEndPoint(data modules.EnvelopePayload, url string, retryToken string) {
 	buf := modules.JsonBufferPool.Get().(*bytes.Buffer)
 	buf.Reset()
 	defer modules.JsonBufferPool.Put(buf)
@@ -205,6 +205,8 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 	req.Header.Set("Authorization", os.Getenv("STRING_AUTH"))
 	req.Header.Set("X-CSRFToken", modules.GetCSRFToken())
 	client := &http.Client{}
+	teste, _ := jsoniter.MarshalIndent(data, "", "")
+	fmt.Println(string(teste))
 	resp, err := client.Do(req)
 	retryEnvelopeMutex.RLock()
 	count := retryEnvelope[retryToken]
@@ -214,7 +216,7 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 		if envelopeToken == "" {
 			envelopeToken = uuid.New().String()
 		}
-		var dataToLog = EnvelopePayload{
+		var dataToLog = modules.EnvelopePayload{
 			Sender:   data.Sender,
 			Evento:   data.Evento,
 			ClientID: data.ClientID,
@@ -252,7 +254,7 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 		return
 	}
 	defer resp.Body.Close()
-	go func(data EnvelopePayload) {
+	go func(data modules.EnvelopePayload) {
 		tempoParaVer := randomBetweenf(1, 4)
 		fmt.Println("Esperando tempo para visualizar !! ", tempoParaVer, " segundos")
 		whatsClient := getClient(data.ClientID)
@@ -281,7 +283,7 @@ func sendEnvelopeToEndPoint(data EnvelopePayload, url string, retryToken string)
 		if envelopeToken == "" {
 			envelopeToken = uuid.New().String()
 		}
-		var dataToLog = EnvelopePayload{
+		var dataToLog = modules.EnvelopePayload{
 			Sender:   data.Sender,
 			Evento:   data.Evento,
 			ClientID: data.ClientID,
@@ -473,57 +475,6 @@ func removeString(slice []string, value string) []string {
 	return filtered
 }
 
-type EnvelopePayload struct {
-	Data     []Envelope `json:"data,omitempty"`
-	Evento   string     `json:"evento,omitempty"`
-	ClientID string     `json:"clientId,omitempty"`
-	Sender   int        `json:"sender,omitempty"`
-}
-type LocationMessage struct {
-	Latitude  *float64 `json:"latitude,omitempty"`
-	Longitude *float64 `json:"longitude,omitempty"`
-	Thumbnail string   `json:"thumbnail,omitempty"`
-}
-type MessageAttrs struct {
-	FileType      string           `json:"file_type,omitempty"`
-	FileName      string           `json:"file_name,omitempty"`
-	Location      *LocationMessage `json:"location,omitempty"`
-	Media         string           `json:"media,omitempty"`
-	Audio         string           `json:"audio,omitempty"`
-	Edited        int              `json:"edited,omitempty"`
-	QuotedMessage *QuotedMessage   `json:"quotedMessage,omitempty"`
-	Contact       *ContactInfo     `json:"contact,omitempty"`
-}
-type QuotedMessage struct {
-	SenderName    string `json:"senderName"`
-	MessageQuoted string `json:"messageQuoted"`
-	MessageID     string `json:"messageID"`
-	Sender        int    `json:"sender"`
-}
-
-type ContactInfo struct {
-	Contato string `json:"contato"`
-	Nome    string `json:"nome"`
-}
-
-type MessagePayload struct {
-	Attrs     MessageAttrs `json:"attrs"`
-	ID        string       `json:"id"`
-	Sender    string       `json:"sender"`
-	Number    string       `json:"number"`
-	Text      string       `json:"text"`
-	Focus     string       `json:"focus,omitempty"`
-	IDGrupo   string       `json:"id_grupo,omitempty"`
-	NomeGrupo string       `json:"nome_grupo,omitempty"`
-	ImgGrupo  string       `json:"imagem_grupo,omitempty"`
-	PerfilImg string       `json:"perfil_image,omitempty"`
-	Timestamp int64        `json:"timestamp"`
-}
-
-type Envelope struct {
-	Mensagem MessagePayload `json:"mensagem"`
-}
-
 // Lida com mensagens recebidas
 func handleMessage(fullInfoMessage *events.Message, clientId string, client *whatsmeow.Client) bool {
 	if fullInfoMessage == nil {
@@ -597,7 +548,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		ctxWt, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		client.MarkRead(ctxWt, MessageID, time.Now(), fullInfoMessage.Info.Chat, fullInfoMessage.Info.Sender, types.ReceiptTypeRead)
-		modules.VerifyStatus(fullInfoMessage.Info.Chat.ToNonAD(), clientId, client)
+		modules.VerifyStatus(fullInfoMessage.Info.Chat.ToNonAD(), clientId, client, fullInfoMessage.Info.PushName)
 
 		return true
 	}
@@ -664,7 +615,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		edited = 1
 		id_message = editedInfo
 	}
-	var contactObject ContactInfo
+	var contactObject modules.ContactInfo
 
 	if contactMessage != nil {
 		var name string = *contactMessage.DisplayName
@@ -690,12 +641,12 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			}
 			numero = "sem_whatsapp"
 		}
-		contactObject = ContactInfo{
+		contactObject = modules.ContactInfo{
 			Contato: numero,
 			Nome:    name,
 		}
 	}
-	messageAttr := MessageAttrs{
+	messageAttr := modules.MessageAttrs{
 		Edited: edited,
 	}
 	if message.GetLiveLocationMessage() != nil {
@@ -703,7 +654,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		teste, _ := json.MarshalIndent(location, " ", "")
 		fmt.Println(string(teste))
 		base64Img := base64.StdEncoding.EncodeToString(location.JPEGThumbnail)
-		messageAttr.Location = &LocationMessage{
+		messageAttr.Location = &modules.LocationMessage{
 			Latitude:  location.DegreesLatitude,
 			Longitude: location.DegreesLongitude,
 			Thumbnail: base64Img,
@@ -714,7 +665,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		teste, _ := json.MarshalIndent(location, " ", "")
 		fmt.Println(string(teste))
 		base64Img := base64.StdEncoding.EncodeToString(location.JPEGThumbnail)
-		messageAttr.Location = &LocationMessage{
+		messageAttr.Location = &modules.LocationMessage{
 			Latitude:  location.DegreesLatitude,
 			Longitude: location.DegreesLongitude,
 			Thumbnail: base64Img,
@@ -731,7 +682,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 		} else {
 			quoted = "" // ou outra lógica, como ignorar ou registrar
 		}
-		var quotedMessage = &QuotedMessage{
+		var quotedMessage = &modules.QuotedMessage{
 			Sender:        2,
 			SenderName:    senderName,
 			MessageID:     quotedMessageID,
@@ -753,7 +704,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 			messageAttr.Media = media
 		}
 	}
-	mensagem := MessagePayload{
+	mensagem := modules.MessagePayload{
 		ID:        id_message,
 		Sender:    senderName,
 		Number:    senderNumber,
@@ -787,13 +738,13 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 	if profilePic != nil {
 		mensagem.PerfilImg = profilePic.URL
 	}
-	objetoMensagens := Envelope{Mensagem: mensagem}
+	objetoMensagens := modules.Envelope{Mensagem: mensagem}
 	if fromMe {
 		if media != "" || text != "" {
-			listaMensagens := []Envelope{}
+			listaMensagens := []modules.Envelope{}
 			fmt.Println("-> Mensagem ENVIADA PELO WHATSAPP:", id_message, senderName, senderNumber, text)
 			listaMensagens = append(listaMensagens, objetoMensagens)
-			data := EnvelopePayload{
+			data := modules.EnvelopePayload{
 				Evento:   "MENSAGEM_RECEBIDA",
 				Sender:   1,
 				ClientID: clientId,
@@ -847,7 +798,7 @@ func handleMessage(fullInfoMessage *events.Message, clientId string, client *wha
 					}
 					if name != "" && numero != "" {
 						fmt.Println("Adicionando ", name, numero)
-						objetoMensagens.Mensagem.Attrs.Contact = &ContactInfo{
+						objetoMensagens.Mensagem.Attrs.Contact = &modules.ContactInfo{
 							Contato: numero,
 							Nome:    name,
 						}
@@ -1477,8 +1428,7 @@ func UpdateMemoryLimit(activeConnections int) {
 }
 
 func main() {
-	teste, _ := modules.GetStatus("teste_disparo_chat")
-	fmt.Println(teste)
+
 	//TANTO NO TESTE SEM E NO TESTE COM 4MB, NO ÚLTIMO TESTE HOUVE UM FLUXO MAIOR DE MENSAGENS, POR ISSO O CONSUMO ELEVADO
 	//1° OBS (2 TESTES FEITOS) : COM O SOFT CAP O GC ESTÁ LIMPANDO MAIS RÁPIDO A HEAP, FAZENDO O CONSUMO FICAR ESTÁTICO EM ~4.5(caindo as vezes para 4.3) JÁ SEM O SOFT CAP ELE DEIXA ACUMULAR MAIS
 	//DESSA FORMA FICAVA SUBINDO. EX : 4->4.18->5->5.05->5.28
